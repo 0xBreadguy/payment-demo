@@ -1,36 +1,44 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# MegaETH Payment Demo
 
-## Getting Started
+Next.js 16 + wagmi v2 + RainbowKit scaffold. Targets MegaETH testnet (chain id `6343`, returned by `carrot.megaeth.com/rpc`). Will host x402 and mpp payment demos.
 
-First, run the development server:
+## Stack
+
+- Next.js 16 (App Router, TypeScript, Tailwind v4)
+- wagmi v2 + viem 2 + RainbowKit
+- Server-side viem wallet for on-chain writes (relayer/sponsor)
+
+## Setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+pnpm install
+cp .env.example .env.local
+# fill NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID and (optional) SERVER_PRIVATE_KEY
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Env
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Var | Where | Purpose |
+| --- | --- | --- |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | client | RainbowKit / WalletConnect |
+| `NEXT_PUBLIC_MEGAETH_RPC_URL` | client | viem transport for wagmi (optional) |
+| `MEGAETH_RPC_URL` | server | viem transport for backend (optional) |
+| `SERVER_PRIVATE_KEY` | server | hex key for backend signer; required for `/api/relay` and `/api/faucet` |
+| `NEXT_PUBLIC_USDM_ADDRESS` | client + server | USDm token address (defaults to `0x392C…9a9A`) |
+| `MPP_SECRET_KEY` | server | HMAC secret for mppx 402 challenges (required for `/api/mpp/charge`) |
+| `MPP_PAY_TO` | server | Recipient of MPP payments (falls back to x402 / server signer) |
+| `NEXT_PUBLIC_MPP_PAY_TO` | client | Optional client-visible override |
+| `MPP_CHARGE_AMOUNT` | server | Human-readable USDm amount (default `1`) |
 
-## Learn More
+## Routes
 
-To learn more about Next.js, take a look at the following resources:
+- `GET /api/health` — chain id, latest block, server signer address
+- `POST /api/relay` — broadcast a pre-signed raw transaction (`{ rawTx: "0x..." }`)
+- `GET /api/mpp/charge` — MPP `tempo.charge` protected endpoint; returns 402 without a credential, 200 + `Payment-Receipt` with one
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Chain
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MegaETH testnet — chain id `6343` (live RPC), RPC `https://carrot.megaeth.com/rpc`, explorer `https://www.megaexplorer.xyz`. Faucet via [testnet.megaeth.com](https://testnet.megaeth.com).
