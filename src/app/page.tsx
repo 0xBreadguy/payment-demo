@@ -1,4 +1,5 @@
 import { MppDemo } from "@/components/MppDemo";
+import { MppSessionDemo } from "@/components/MppSessionDemo";
 import { ServerHealth } from "@/components/ServerHealth";
 import { UsdmPanel } from "@/components/UsdmPanel";
 import { WalletPanel } from "@/components/WalletPanel";
@@ -33,6 +34,7 @@ export default function Home() {
 
       <section className="grid grid-cols-1 gap-6">
         <MppDemo />
+        <MppSessionDemo />
       </section>
     </main>
   );
