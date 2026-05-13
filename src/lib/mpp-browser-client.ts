@@ -5,7 +5,7 @@ import {
   type WalletClient,
 } from "viem";
 import { Challenge, Credential, Receipt } from "mppx";
-import { megaethTestnet } from "./chain";
+import { megaethTestnet, megaethTxUrl } from "./chain";
 
 const erc20Abi = parseAbi([
   "function transfer(address to, uint256 amount) returns (bool)",
@@ -103,7 +103,7 @@ export async function payMppCharge(
   }
   const body = bodyText ? JSON.parse(bodyText) : null;
   const receipt = Receipt.fromResponse(finalResponse);
-  const explorerUrl = `${megaethTestnet.blockExplorers.default.url}/tx/${txHash}`;
+  const explorerUrl = megaethTxUrl(txHash);
 
   onProgress?.({ step: "done" });
   return {

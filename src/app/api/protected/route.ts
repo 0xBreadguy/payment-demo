@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import { withX402, x402ResourceServer } from "@x402/next";
 import { HTTPFacilitatorClient } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
@@ -13,13 +13,15 @@ import {
   getFacilitatorUrl,
   getPayToAddress,
 } from "@/lib/x402-config";
+import { getRandomProtectedImage } from "@/lib/protected-image";
 
-async function handler(_request: NextRequest) {
+async function handler() {
   return NextResponse.json({
     secret: "🎉 You paid 1 USDm. Here is the protected content.",
     when: new Date().toISOString(),
     quote:
       "Money is just a tool. Useful when it flows; useless when it sits.",
+    image: getRandomProtectedImage(),
   });
 }
 

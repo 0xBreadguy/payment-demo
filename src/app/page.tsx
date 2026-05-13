@@ -1,6 +1,5 @@
 import { MppDemo } from "@/components/MppDemo";
 import { MppSessionDemo } from "@/components/MppSessionDemo";
-import { ServerHealth } from "@/components/ServerHealth";
 import { UsdmPanel } from "@/components/UsdmPanel";
 import { WalletPanel } from "@/components/WalletPanel";
 import { X402Demo } from "@/components/X402Demo";
@@ -22,12 +21,11 @@ export default function Home() {
         </p>
       </header>
 
-      <section className="grid grid-cols-1 gap-6 md:grid-cols-2">
+      <section>
         <WalletPanel />
-        <ServerHealth />
       </section>
 
-      <section className="grid grid-cols-1 gap-6 md:grid-cols-2">
+      <section className="grid grid-cols-1 gap-6">
         <UsdmPanel />
         <X402Demo />
       </section>

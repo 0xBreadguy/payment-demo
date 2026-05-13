@@ -3,11 +3,17 @@
 import { useState } from "react";
 import { formatUnits } from "viem";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { ProtectedImageResult } from "@/components/ProtectedImageResult";
+import { megaethTxUrl } from "@/lib/chain";
 import {
   MPP_SESSION_DEPOSIT_AMOUNT_HUMAN,
   MPP_SESSION_PROTECTED_PATH,
   MPP_SESSION_REQUEST_AMOUNT_HUMAN,
 } from "@/lib/mpp-session-config";
+import {
+  getMppSessionRequestDisplayNumber,
+  prependMppSessionRequest,
+} from "@/lib/mpp-session-feed";
 import {
   closeMppSession,
   payMppSessionRequest,
@@ -52,6 +58,15 @@ function stepLabel(step: MppSessionProgress["step"]): string {
 function fmt(amount: bigint | undefined) {
   if (amount === undefined) return "—";
   return `${formatUnits(amount, USDM_DECIMALS)} ${USDM_SYMBOL}`;
+}
+
+function fmtBaseUnits(amount: string | undefined) {
+  if (!amount) return "—";
+  try {
+    return `${formatUnits(BigInt(amount), USDM_DECIMALS)} ${USDM_SYMBOL}`;
+  } catch {
+    return amount;
+  }
 }
 
 function shortHex(value?: string) {
@@ -115,7 +130,7 @@ export function MppSessionDemo() {
         targetUrl: MPP_SESSION_PROTECTED_PATH,
         walletClient,
       });
-      setRequests((prev) => [...prev, result]);
+      setRequests((prev) => prependMppSessionRequest(prev, result));
       setState(nextState);
       setPhase({ kind: "idle" });
     } catch (e) {
@@ -260,6 +275,30 @@ export function MppSessionDemo() {
         </pre>
       )}
 
+      {closeResult && (
+        <div className="mt-5 space-y-2">
+          <p className="text-xs uppercase tracking-wider text-amber-400">
+            Closed
+          </p>
+          <div className="rounded-lg bg-black/40 p-3 font-mono text-[11px] text-white/80">
+            <a
+              href={closeResult.explorerUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="block break-all text-sky-300 underline-offset-2 hover:underline"
+            >
+              close tx · {shortHex(closeResult.txHash)}
+            </a>
+            <p className="mt-1 text-white/50">
+              settled {fmtBaseUnits(closeResult.receipt.acceptedCumulative)}
+            </p>
+            <p className="mt-1 text-white/50">
+              refunded {fmtBaseUnits(closeResult.refundAmount)}
+            </p>
+          </div>
+        </div>
+      )}
+
       {requests.length > 0 && (
         <div className="mt-5 space-y-3">
           <p className="text-xs uppercase tracking-wider text-emerald-400">
@@ -268,12 +307,17 @@ export function MppSessionDemo() {
           <div className="space-y-2">
             {requests.map((entry, index) => (
               <div
-                key={`${entry.receipt.channelId}-${index}`}
+                key={`${entry.receipt.challengeId}-${entry.receipt.acceptedCumulative}-${entry.action}`}
                 className="rounded-lg bg-black/40 p-3 font-mono text-[11px] text-white/80"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-white/50">
-                    #{index + 1} · {entry.action}
+                    #
+                    {getMppSessionRequestDisplayNumber(
+                      requests.length,
+                      index,
+                    )}{" "}
+                    · {entry.action}
                   </span>
                   <span className="text-white/40">
                     cum {entry.receipt.acceptedCumulative}
@@ -291,7 +335,7 @@ export function MppSessionDemo() {
                 )}
                 {entry.topUpTxHash && (
                   <a
-                    href={`https://www.megaexplorer.xyz/tx/${entry.topUpTxHash}`}
+                    href={megaethTxUrl(entry.topUpTxHash)}
                     target="_blank"
                     rel="noreferrer"
                     className="mt-1 block break-all text-sky-300 underline-offset-2 hover:underline"
@@ -299,6 +343,9 @@ export function MppSessionDemo() {
                     top-up tx · {shortHex(entry.topUpTxHash)}
                   </a>
                 )}
+                <div className="mt-3">
+                  <ProtectedImageResult data={entry.body} layout="compact" />
+                </div>
                 <details className="mt-1">
                   <summary className="cursor-pointer text-white/40">
                     body / receipt
@@ -309,27 +356,6 @@ export function MppSessionDemo() {
                 </details>
               </div>
             ))}
-          </div>
-        </div>
-      )}
-
-      {closeResult && (
-        <div className="mt-5 space-y-2">
-          <p className="text-xs uppercase tracking-wider text-amber-400">
-            Closed
-          </p>
-          <div className="rounded-lg bg-black/40 p-3 font-mono text-[11px] text-white/80">
-            <a
-              href={closeResult.explorerUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="block break-all text-sky-300 underline-offset-2 hover:underline"
-            >
-              close tx · {shortHex(closeResult.txHash)}
-            </a>
-            <p className="mt-1 text-white/50">
-              settled {closeResult.receipt.acceptedCumulative}
-            </p>
           </div>
         </div>
       )}

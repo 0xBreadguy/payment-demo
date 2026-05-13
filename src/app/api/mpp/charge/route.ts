@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createPublicClient, http } from "viem";
 import { Mppx, tempo } from "mppx/server";
 import { megaethTestnet } from "@/lib/chain";
+import { getRandomProtectedImage } from "@/lib/protected-image";
 import {
   MPP_CHARGE_AMOUNT_HUMAN,
   MPP_TOKEN_ADDRESS,
@@ -76,6 +77,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       secret: "🎉 You paid 1 USDm via MPP. Here is the protected content.",
       when: new Date().toISOString(),
       quote: "Payment is a protocol. Settle, verify, deliver.",
+      image: getRandomProtectedImage(),
     }),
   );
 }

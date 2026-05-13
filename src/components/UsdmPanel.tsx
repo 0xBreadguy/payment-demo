@@ -3,9 +3,8 @@
 import { useState } from "react";
 import { formatUnits } from "viem";
 import { useAccount, useReadContract } from "wagmi";
+import { megaethTxUrl } from "@/lib/chain";
 import { USDM_ADDRESS, USDM_DECIMALS, USDM_SYMBOL, usdmAbi } from "@/lib/usdm";
-
-const EXPLORER = "https://www.megaexplorer.xyz";
 
 export function UsdmPanel() {
   const { address, isConnected } = useAccount();
@@ -74,7 +73,7 @@ export function UsdmPanel() {
         type="button"
         disabled={!isConnected || pending}
         onClick={handleFaucet}
-        className="mt-5 w-full rounded-lg bg-white px-4 py-2.5 text-sm font-medium text-black transition disabled:cursor-not-allowed disabled:opacity-40 hover:bg-white/90"
+        className="mt-5 inline-flex items-center justify-center rounded-lg bg-white px-4 py-2 text-sm font-medium text-black transition disabled:cursor-not-allowed disabled:opacity-40 hover:bg-white/90"
       >
         {pending ? "Minting…" : `Mint 100 ${USDM_SYMBOL}`}
       </button>
@@ -84,7 +83,7 @@ export function UsdmPanel() {
           tx{" "}
           <a
             className="underline"
-            href={`${EXPLORER}/tx/${txHash}`}
+            href={megaethTxUrl(txHash)}
             target="_blank"
             rel="noreferrer"
           >

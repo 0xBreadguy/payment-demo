@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { x402Client, x402HTTPClient, wrapFetchWithPayment } from "@x402/fetch";
 import { ExactEvmScheme } from "@x402/evm/exact/client";
+import { ProtectedImageResult } from "@/components/ProtectedImageResult";
 import { buildBrowserSigner } from "@/lib/x402-browser-signer";
 
 const PROTECTED_PATH = "/api/protected";
@@ -94,6 +95,7 @@ export function X402Demo() {
 
       {state.kind === "success" && (
         <div className="mt-4 space-y-3">
+          <ProtectedImageResult data={state.data} />
           <div>
             <p className="text-xs uppercase tracking-wider text-emerald-400">Response</p>
             <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-black/40 p-3 font-mono text-[11px] text-white/80">

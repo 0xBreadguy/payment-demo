@@ -7,7 +7,8 @@ import {
   type WalletClient,
 } from "viem";
 import { Challenge, Credential } from "mppx";
-import { megaethTestnet } from "./chain";
+import { megaethTestnet, megaethTxUrl } from "./chain";
+import { getMppSessionCloseRefundAmount } from "./mpp-session-feed";
 import {
   computeMegaethSessionChannelId,
   createMegaethSessionSource,
@@ -71,6 +72,7 @@ export type MppSessionCloseResult = {
   status: number;
   receipt: MppSessionReceipt;
   rawReceipt: Record<string, unknown>;
+  refundAmount: string;
   txHash: `0x${string}`;
   explorerUrl: string;
 };
@@ -107,10 +109,6 @@ function parseChallenge(response: Response): SessionChallenge {
     );
   }
   return challenge as SessionChallenge;
-}
-
-function explorerTxUrl(txHash: string) {
-  return `${megaethTestnet.blockExplorers.default.url}/tx/${txHash}`;
 }
 
 function decodeRawReceiptHeader(response: Response): Record<string, unknown> {
@@ -482,9 +480,9 @@ export async function payMppSessionRequest(
       : undefined;
   const explorerUrl =
     action === "open" && txHash
-      ? explorerTxUrl(txHash)
+      ? megaethTxUrl(txHash)
       : action === "topUp" && topUpTxHash
-        ? explorerTxUrl(topUpTxHash)
+        ? megaethTxUrl(topUpTxHash)
         : undefined;
 
   onProgress?.({ step: "done" });
@@ -517,6 +515,7 @@ export async function closeMppSession(options: {
   if (
     !state.channelId ||
     state.cumulativeAmount === undefined ||
+    state.depositAmount === undefined ||
     !state.escrowContract ||
     !state.opened
   ) {
@@ -573,9 +572,13 @@ export async function closeMppSession(options: {
 
   return {
     result: {
-      explorerUrl: explorerTxUrl(txHash),
+      explorerUrl: megaethTxUrl(txHash),
       rawReceipt,
       receipt,
+      refundAmount: getMppSessionCloseRefundAmount(
+        state.depositAmount,
+        state.cumulativeAmount,
+      ),
       status: response.status,
       txHash,
     },

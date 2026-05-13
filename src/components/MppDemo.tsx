@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { ProtectedImageResult } from "@/components/ProtectedImageResult";
 import { MPP_PROTECTED_PATH } from "@/lib/mpp-config";
 import {
   payMppCharge,
@@ -123,6 +124,7 @@ export function MppDemo() {
 
       {state.kind === "success" && (
         <div className="mt-4 space-y-3">
+          <ProtectedImageResult data={state.result.body} layout="compact" />
           <div>
             <p className="text-xs uppercase tracking-wider text-emerald-400">
               Response

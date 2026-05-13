@@ -7,6 +7,7 @@ import { waitForTransactionReceipt, writeContract } from "viem/actions";
 
 import { megaethTestnet } from "@/lib/chain";
 import { publicClient, getServerWallet, serverAccount } from "@/lib/server-wallet";
+import { getRandomProtectedImage } from "@/lib/protected-image";
 import {
   computeMegaethSessionChannelId,
   getMegaethSessionAuthorizedSigner,
@@ -641,6 +642,7 @@ async function handle(request: NextRequest): Promise<Response> {
       route: "mpp/session",
       message: "MegaETH session payment accepted.",
       when: new Date().toISOString(),
+      image: getRandomProtectedImage(),
     }),
   );
 }
