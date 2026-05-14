@@ -10,10 +10,10 @@ import {
   MPP_SESSION_REQUEST_AMOUNT_HUMAN,
 } from "@/lib/mpp-session-config";
 import {
+  appendMppSessionEvent,
   canPayMppSessionRequest,
+  getMppSessionEventsNewestFirst,
   getMppSessionRemainingAmount,
-  getMppSessionRequestDisplayNumber,
-  prependMppSessionRequest,
 } from "@/lib/mpp-session-feed";
 import {
   closeMppSession,
@@ -31,6 +31,25 @@ type Phase =
   | { kind: "idle" }
   | { kind: "loading"; step: string }
   | { kind: "error"; message: string };
+
+type MppSessionEvent =
+  | {
+      kind: "request";
+      requestNumber: number;
+      result: MppSessionRequestResult;
+      sequence: number;
+    }
+  | {
+      kind: "top-up";
+      result: MppSessionTopUpResult;
+      sequence: number;
+      topUpNumber: number;
+    }
+  | {
+      kind: "close";
+      result: MppSessionCloseResult;
+      sequence: number;
+    };
 
 const initialState: MppSessionLocalState = {
   opened: false,
@@ -78,6 +97,94 @@ function shortHex(value?: string) {
   return `${value.slice(0, 10)}…${value.slice(-6)}`;
 }
 
+function MppSessionEventCard({ event }: { event: MppSessionEvent }) {
+  if (event.kind === "top-up") {
+    const entry = event.result;
+    return (
+      <div className="rounded-lg bg-black/40 p-3 font-mono text-[11px] text-white/80">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-white/50">top-up #{event.topUpNumber}</span>
+          <span className="text-white/40">
+            added {fmtBaseUnits(entry.additionalDeposit)}
+          </span>
+        </div>
+        {entry.explorerUrl && entry.txHash ? (
+          <a
+            href={entry.explorerUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-1 block break-all text-sky-300 underline-offset-2 hover:underline"
+          >
+            top-up tx · {shortHex(entry.txHash)}
+          </a>
+        ) : (
+          <p className="mt-1 text-white/50">top-up accepted</p>
+        )}
+      </div>
+    );
+  }
+
+  if (event.kind === "close") {
+    const entry = event.result;
+    return (
+      <div className="rounded-lg bg-black/40 p-3 font-mono text-[11px] text-white/80">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-white/50">close</span>
+          <span className="text-white/40">
+            settled {fmtBaseUnits(entry.receipt.acceptedCumulative)}
+          </span>
+        </div>
+        <a
+          href={entry.explorerUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-1 block break-all text-sky-300 underline-offset-2 hover:underline"
+        >
+          close tx · {shortHex(entry.txHash)}
+        </a>
+        <p className="mt-1 text-white/50">
+          refunded {fmtBaseUnits(entry.refundAmount)}
+        </p>
+      </div>
+    );
+  }
+
+  const entry = event.result;
+  return (
+    <div className="rounded-lg bg-black/40 p-3 font-mono text-[11px] text-white/80">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-white/50">
+          pay #{event.requestNumber} · {entry.action}
+        </span>
+        <span className="text-white/40">
+          cum {entry.receipt.acceptedCumulative}
+        </span>
+      </div>
+      {entry.explorerUrl && entry.txHash && (
+        <a
+          href={entry.explorerUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-1 block break-all text-sky-300 underline-offset-2 hover:underline"
+        >
+          open tx · {shortHex(entry.txHash)}
+        </a>
+      )}
+      <div className="mt-3">
+        <ProtectedImageResult data={entry.body} layout="compact" />
+      </div>
+      <details className="mt-1">
+        <summary className="cursor-pointer text-white/40">
+          body / receipt
+        </summary>
+        <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap text-white/60">
+{JSON.stringify({ body: entry.body, receipt: entry.receipt }, null, 2)}
+        </pre>
+      </details>
+    </div>
+  );
+}
+
 export function MppSessionDemo() {
   const { address, isConnected } = useAccount();
   const { data: walletClient } = useWalletClient();
@@ -85,11 +192,8 @@ export function MppSessionDemo() {
 
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [state, setState] = useState<MppSessionLocalState>(initialState);
-  const [requests, setRequests] = useState<MppSessionRequestResult[]>([]);
+  const [events, setEvents] = useState<MppSessionEvent[]>([]);
   const [closeResult, setCloseResult] = useState<MppSessionCloseResult | null>(
-    null,
-  );
-  const [topUpResult, setTopUpResult] = useState<MppSessionTopUpResult | null>(
     null,
   );
   const [topUpError, setTopUpError] = useState<string | null>(null);
@@ -102,6 +206,7 @@ export function MppSessionDemo() {
   const remainingAmount = getMppSessionRemainingAmount(state);
   const canPay = canPayMppSessionRequest(state, requestAmount);
   const needsTopUp = state.opened && !canPay;
+  const newestEvents = getMppSessionEventsNewestFirst(events);
 
   async function previewUnpaid() {
     setUnauthorized(null);
@@ -138,8 +243,10 @@ export function MppSessionDemo() {
       });
       return;
     }
+    const startsNewRound = !state.opened && closeResult !== null;
     setUnauthorized(null);
     setCloseResult(null);
+    setTopUpError(null);
     try {
       setPhase({ kind: "loading", step: "Starting…" });
       const { result, nextState } = await payMppSessionRequest({
@@ -152,7 +259,21 @@ export function MppSessionDemo() {
         targetUrl: MPP_SESSION_PROTECTED_PATH,
         walletClient,
       });
-      setRequests((prev) => prependMppSessionRequest(prev, result));
+      setEvents((prev) => {
+        const currentRoundEvents = startsNewRound ? [] : prev;
+        return appendMppSessionEvent(
+          prev,
+          {
+            kind: "request",
+            requestNumber:
+              currentRoundEvents.filter((event) => event.kind === "request")
+                .length + 1,
+            result,
+            sequence: currentRoundEvents.length + 1,
+          },
+          { resetBeforeAppend: startsNewRound },
+        );
+      });
       setState(nextState);
       setPhase({ kind: "idle" });
     } catch (e) {
@@ -174,7 +295,6 @@ export function MppSessionDemo() {
     }
     setUnauthorized(null);
     setCloseResult(null);
-    setTopUpResult(null);
     setTopUpError(null);
     try {
       setPhase({ kind: "loading", step: "Starting top-up…" });
@@ -188,7 +308,15 @@ export function MppSessionDemo() {
         targetUrl: MPP_SESSION_PROTECTED_PATH,
         walletClient,
       });
-      setTopUpResult(result);
+      setEvents((prev) =>
+        appendMppSessionEvent(prev, {
+          kind: "top-up",
+          result,
+          sequence: prev.length + 1,
+          topUpNumber:
+            prev.filter((event) => event.kind === "top-up").length + 1,
+        }),
+      );
       setState(nextState);
       setPhase({ kind: "idle" });
     } catch (e) {
@@ -222,6 +350,13 @@ export function MppSessionDemo() {
         walletClient,
       });
       setCloseResult(result);
+      setEvents((prev) =>
+        appendMppSessionEvent(prev, {
+          kind: "close",
+          result,
+          sequence: prev.length + 1,
+        }),
+      );
       setState(nextState);
       setPhase({ kind: "idle" });
     } catch (e) {
@@ -234,9 +369,8 @@ export function MppSessionDemo() {
 
   function resetLocal() {
     setState(initialState);
-    setRequests([]);
+    setEvents([]);
     setCloseResult(null);
-    setTopUpResult(null);
     setTopUpError(null);
     setUnauthorized(null);
     setPhase({ kind: "idle" });
@@ -363,101 +497,14 @@ export function MppSessionDemo() {
         </pre>
       )}
 
-      {topUpResult && (
-        <div className="mt-5 space-y-2">
-          <p className="text-xs uppercase tracking-wider text-emerald-400">
-            Top-up
-          </p>
-          <div className="rounded-lg bg-black/40 p-3 font-mono text-[11px] text-white/80">
-            {topUpResult.explorerUrl && topUpResult.txHash ? (
-              <a
-                href={topUpResult.explorerUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="block break-all text-sky-300 underline-offset-2 hover:underline"
-              >
-                top-up tx · {shortHex(topUpResult.txHash)}
-              </a>
-            ) : (
-              <p className="text-white/50">top-up accepted</p>
-            )}
-            <p className="mt-1 text-white/50">
-              added {fmtBaseUnits(topUpResult.additionalDeposit)}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {closeResult && (
-        <div className="mt-5 space-y-2">
-          <p className="text-xs uppercase tracking-wider text-amber-400">
-            Closed
-          </p>
-          <div className="rounded-lg bg-black/40 p-3 font-mono text-[11px] text-white/80">
-            <a
-              href={closeResult.explorerUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="block break-all text-sky-300 underline-offset-2 hover:underline"
-            >
-              close tx · {shortHex(closeResult.txHash)}
-            </a>
-            <p className="mt-1 text-white/50">
-              settled {fmtBaseUnits(closeResult.receipt.acceptedCumulative)}
-            </p>
-            <p className="mt-1 text-white/50">
-              refunded {fmtBaseUnits(closeResult.refundAmount)}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {requests.length > 0 && (
+      {newestEvents.length > 0 && (
         <div className="mt-5 space-y-3">
           <p className="text-xs uppercase tracking-wider text-emerald-400">
-            Requests ({requests.length})
+            Session events ({events.length})
           </p>
           <div className="space-y-2">
-            {requests.map((entry, index) => (
-              <div
-                key={`${entry.receipt.challengeId}-${entry.receipt.acceptedCumulative}-${entry.action}`}
-                className="rounded-lg bg-black/40 p-3 font-mono text-[11px] text-white/80"
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-white/50">
-                    #
-                    {getMppSessionRequestDisplayNumber(
-                      requests.length,
-                      index,
-                    )}{" "}
-                    · {entry.action}
-                  </span>
-                  <span className="text-white/40">
-                    cum {entry.receipt.acceptedCumulative}
-                  </span>
-                </div>
-                {entry.explorerUrl && entry.txHash && (
-                  <a
-                    href={entry.explorerUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-1 block break-all text-sky-300 underline-offset-2 hover:underline"
-                  >
-                    open tx · {shortHex(entry.txHash)}
-                  </a>
-                )}
-                <div className="mt-3">
-                  <ProtectedImageResult data={entry.body} layout="compact" />
-                </div>
-                <details className="mt-1">
-                  <summary className="cursor-pointer text-white/40">
-                    body / receipt
-                  </summary>
-                  <pre className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap text-white/60">
-{JSON.stringify({ body: entry.body, receipt: entry.receipt }, null, 2)}
-                  </pre>
-                </details>
-              </div>
+            {newestEvents.map((event) => (
+              <MppSessionEventCard event={event} key={event.sequence} />
             ))}
           </div>
         </div>
