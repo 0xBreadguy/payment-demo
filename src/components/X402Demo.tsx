@@ -6,6 +6,7 @@ import { x402Client, x402HTTPClient, wrapFetchWithPayment } from "@x402/fetch";
 import { ExactEvmScheme } from "@x402/evm/exact/client";
 import { ProtectedImageResult } from "@/components/ProtectedImageResult";
 import { buildBrowserSigner } from "@/lib/x402-browser-signer";
+import { readX402PreviewResponse } from "@/lib/x402-preview";
 
 const PROTECTED_PATH = "/api/protected";
 
@@ -26,9 +27,10 @@ export function X402Demo() {
     setUnauthorized(null);
     setState({ kind: "loading", step: "GET /api/protected (no payment)" });
     try {
-      const res = await fetch(PROTECTED_PATH);
-      const body = await res.json();
-      setUnauthorized({ status: res.status, body });
+      const res = await fetch(PROTECTED_PATH, {
+        headers: { Accept: "application/json" },
+      });
+      setUnauthorized(await readX402PreviewResponse(res));
       setState({ kind: "idle" });
     } catch (e) {
       setState({ kind: "error", message: e instanceof Error ? e.message : "fetch failed" });
