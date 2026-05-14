@@ -30,6 +30,7 @@ import {
   getMppSessionPayToAddress,
   getMppSessionReadiness,
 } from "@/lib/mpp-session-config";
+import { getMppSessionStateStore } from "@/lib/mpp-session-store";
 
 // Relax credential payload to accept the Permit2 variants of open/topUp.
 const sessionMethodWithPermit2 = Method.from({
@@ -40,8 +41,6 @@ const sessionMethodWithPermit2 = Method.from({
     request: Methods.session.schema.request,
   },
 });
-
-const sessions = new Map<Hex, MegaethSessionChannelState>();
 
 type MppxHandler = ReturnType<typeof Mppx.create<readonly [ReturnType<typeof Method.toServer>]>>;
 
@@ -54,6 +53,7 @@ function getMppx(realm: string): MppxHandler {
   const secretKey = getMppSecretKey();
   const recipient = getMppSessionPayToAddress();
   const serverWalletClient = getServerWallet();
+  const sessionStore = getMppSessionStateStore();
 
   if (!secretKey || !recipient || !serverWalletClient || !serverAccount) {
     throw new Error("MPP session route is not configured");
@@ -273,7 +273,7 @@ function getMppx(realm: string): MppxHandler {
                 units: 1,
               } satisfies MegaethSessionChannelState;
 
-              sessions.set(channelId, state);
+              await sessionStore.putChannel(channelId, state);
 
               return {
                 acceptedCumulative: state.highestVoucherAmount.toString(),
@@ -292,7 +292,7 @@ function getMppx(realm: string): MppxHandler {
 
             case "voucher": {
               const channelId = p.channelId as Hex;
-              const existing = sessions.get(channelId);
+              const existing = await sessionStore.getChannel(channelId);
 
               if (!existing) {
                 throw new Errors.VerificationFailedError({
@@ -357,7 +357,7 @@ function getMppx(realm: string): MppxHandler {
                 units: existing.units + 1,
               } satisfies MegaethSessionChannelState;
 
-              sessions.set(channelId, nextState);
+              await sessionStore.putChannel(channelId, nextState);
 
               return {
                 acceptedCumulative: nextState.highestVoucherAmount.toString(),
@@ -375,7 +375,7 @@ function getMppx(realm: string): MppxHandler {
 
             case "topUp": {
               const channelId = p.channelId as Hex;
-              const existing = sessions.get(channelId);
+              const existing = await sessionStore.getChannel(channelId);
 
               if (!existing) {
                 throw new Errors.VerificationFailedError({
@@ -457,7 +457,7 @@ function getMppx(realm: string): MppxHandler {
                 settledOnChain: onChain.settled,
               } satisfies MegaethSessionChannelState;
 
-              sessions.set(channelId, nextState);
+              await sessionStore.putChannel(channelId, nextState);
 
               return {
                 acceptedCumulative: nextState.highestVoucherAmount.toString(),
@@ -476,7 +476,7 @@ function getMppx(realm: string): MppxHandler {
 
             case "close": {
               const channelId = p.channelId as Hex;
-              const existing = sessions.get(channelId);
+              const existing = await sessionStore.getChannel(channelId);
 
               if (!existing) {
                 throw new Errors.VerificationFailedError({
@@ -547,7 +547,7 @@ function getMppx(realm: string): MppxHandler {
                 });
               }
 
-              sessions.delete(channelId);
+              await sessionStore.deleteChannel(channelId);
 
               return {
                 acceptedCumulative: cumulativeAmount.toString(),

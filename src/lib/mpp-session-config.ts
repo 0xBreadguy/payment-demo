@@ -1,6 +1,10 @@
 import { getAddress, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { USDM_ADDRESS, USDM_DECIMALS } from "./usdm";
+import { USDM_ADDRESS, USDM_DECIMALS } from "./usdm.ts";
+import {
+  isMppSessionDurableStoreConfigured,
+  shouldRequireDurableMppSessionStore,
+} from "./mpp-session-store.ts";
 
 export const MPP_SESSION_PROTECTED_PATH = "/api/mpp/session";
 
@@ -52,5 +56,13 @@ export function getMppSessionReadiness(): MppSessionReadiness {
   if (!process.env.SERVER_PRIVATE_KEY) missingEnv.push("SERVER_PRIVATE_KEY");
   if (!getMppSessionPayToAddress())
     missingEnv.push("PAY_TO (or SERVER_PRIVATE_KEY)");
+  if (
+    shouldRequireDurableMppSessionStore() &&
+    !isMppSessionDurableStoreConfigured()
+  ) {
+    missingEnv.push(
+      "MPP_SESSION_STATE_REDIS_REST_URL and MPP_SESSION_STATE_REDIS_REST_TOKEN (or UPSTASH_REDIS_REST_* / KV_REST_API_*)",
+    );
+  }
   return { ready: missingEnv.length === 0, missingEnv };
 }

@@ -34,6 +34,11 @@ Open http://localhost:3000.
 | `MPP_GASLESS_CHARGE_AMOUNT` | server | Human-readable USDm amount for the gasless MPP charge (defaults to `MPP_CHARGE_AMOUNT`, then `1`) |
 | `NEXT_PUBLIC_MPP_GASLESS_TOKEN_NAME` | client + server | Optional EIP-2612 token domain name override for permit20 signing; by default the route reads `eip712Domain()` / `name()` from the token |
 | `NEXT_PUBLIC_MPP_GASLESS_TOKEN_VERSION` | client + server | Optional EIP-2612 token domain version override for permit20 signing; by default the route reads `eip712Domain()` from the token, then falls back to `NEXT_PUBLIC_X402_TOKEN_VERSION` / `1` |
+| `NEXT_PUBLIC_MPP_SESSION_ESCROW` | client + server | Deployed TempoStreamChannelEvm escrow used by `/api/mpp/session` |
+| `MPP_SESSION_STATE_REDIS_REST_URL` | server | Upstash/Vercel Redis REST URL for durable MPP session channel state; use `UPSTASH_REDIS_REST_URL` or `KV_REST_API_URL` as alternatives |
+| `MPP_SESSION_STATE_REDIS_REST_TOKEN` | server | Upstash/Vercel Redis REST token for durable MPP session channel state; use `UPSTASH_REDIS_REST_TOKEN` or `KV_REST_API_TOKEN` as alternatives |
+| `MPP_SESSION_STATE_KEY_PREFIX` | server | Optional Redis key prefix for MPP session channels (default `mpp-session:channel:`) |
+| `MPP_SESSION_ALLOW_MEMORY_STORE` | server | Set to `1` only for throwaway Vercel demos that accept losing channel state across instances |
 
 ## Routes
 
@@ -41,6 +46,24 @@ Open http://localhost:3000.
 - `POST /api/relay` — broadcast a pre-signed raw transaction (`{ rawTx: "0x..." }`)
 - `GET /api/mpp/charge` — MPP `tempo.charge` protected endpoint; plain ERC20 transfer, client pays gas
 - `GET /api/mpp/gasless-charge` — custom MPP `permit20.charge` protected endpoint; client signs EIP-2612 permit, server pays gas for `permit` + `transferFrom`
+- `GET|POST /api/mpp/session` — MPP `tempo.session` pay-as-you-go endpoint; open/voucher/top-up/close state is persisted in Redis when configured
+
+## MPP session production state
+
+`/api/mpp/session` keeps the highest accepted voucher for each channel so close
+settles the correct cumulative amount. Local development can use the in-memory
+fallback, but serverless production cannot rely on module memory because a close
+request may run on a different instance from the open/voucher requests.
+
+On Vercel, configure an Upstash/Vercel Redis REST database by setting either:
+
+- `MPP_SESSION_STATE_REDIS_REST_URL` and `MPP_SESSION_STATE_REDIS_REST_TOKEN`
+- or the marketplace-provided `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`
+- or older `KV_REST_API_URL` / `KV_REST_API_TOKEN`
+
+Without one of those pairs, the route reports missing env in readiness on Vercel.
+For non-Vercel serverless hosts, set `MPP_SESSION_REQUIRE_DURABLE_STORE=1` to
+fail fast when the durable store is missing.
 
 ## Chain
 
