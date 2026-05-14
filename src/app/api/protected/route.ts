@@ -13,6 +13,7 @@ import {
   getFacilitatorUrl,
   getPayToAddress,
 } from "@/lib/x402-config";
+import { getFacilitatorAuthHeaders } from "@/lib/x402-facilitator-auth";
 import { getRandomProtectedImage } from "@/lib/protected-image";
 
 async function handler() {
@@ -29,7 +30,11 @@ const facilitatorAddress = getFacilitatorAccountAddress();
 const fallbackPayTo = (facilitatorAddress ?? "0x0000000000000000000000000000000000000000") as `0x${string}`;
 const payTo = getPayToAddress(fallbackPayTo);
 
-const facilitatorClient = new HTTPFacilitatorClient({ url: getFacilitatorUrl() });
+const facilitatorUrl = getFacilitatorUrl();
+const facilitatorClient = new HTTPFacilitatorClient({
+  url: facilitatorUrl,
+  createAuthHeaders: getFacilitatorAuthHeaders(facilitatorUrl),
+});
 
 const resourceServer = new x402ResourceServer(facilitatorClient).register(
   X402_NETWORK,
