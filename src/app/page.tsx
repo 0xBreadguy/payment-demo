@@ -1,4 +1,5 @@
 import { MppDemo } from "@/components/MppDemo";
+import { MppGaslessDemo } from "@/components/MppGaslessDemo";
 import { MppSessionDemo } from "@/components/MppSessionDemo";
 import { UsdmPanel } from "@/components/UsdmPanel";
 import { WalletPanel } from "@/components/WalletPanel";
@@ -15,10 +16,9 @@ export default function Home() {
           Payment Demo Sandbox
         </h1>
         <p className="mt-3 max-w-2xl text-sm text-white/60">
-          Connect a wallet, mint test USDm, then try three payment flows: x402
-          (Permit2, server-sponsored gas), MPP (plain ERC20 transfer, client
-          pays gas), or MPP pay-as-you-go session (Permit2 deposit plus
-          off-chain vouchers) to fetch a protected endpoint.
+          Connect a wallet, mint test USDm, then compare x402, MPP one-time
+          charge, MPP gasless charge, and MPP pay-as-you-go session payments
+          against protected endpoints.
         </p>
       </header>
 
@@ -33,6 +33,10 @@ export default function Home() {
 
       <section className="grid grid-cols-1 gap-6">
         <MppDemo />
+        <MppGaslessDemo />
+      </section>
+
+      <section className="grid grid-cols-1 gap-6">
         <MppSessionDemo />
       </section>
     </main>
