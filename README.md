@@ -27,10 +27,9 @@ Open http://localhost:3000.
 | `NEXT_PUBLIC_MEGAETH_RPC_URL` | client | viem transport for wagmi (optional) |
 | `MEGAETH_RPC_URL` | server | viem transport for backend (optional) |
 | `SERVER_PRIVATE_KEY` | server | hex key for backend signer; required for `/api/relay` and `/api/faucet` |
-| `NEXT_PUBLIC_USDM_ADDRESS` | client + server | USDm token address (defaults to `0x392C…9a9A`) |
+| `NEXT_PUBLIC_USDM_ADDRESS` | client + server | USDm token address (shared by x402 / mpp / mpp-session) |
+| `PAY_TO` | server | Recipient of all USDm payments (falls back to server signer address) |
 | `MPP_SECRET_KEY` | server | HMAC secret for mppx 402 challenges (required for `/api/mpp/charge`) |
-| `MPP_PAY_TO` | server | Recipient of MPP payments (falls back to x402 / server signer) |
-| `NEXT_PUBLIC_MPP_PAY_TO` | client | Optional client-visible override |
 | `MPP_CHARGE_AMOUNT` | server | Human-readable USDm amount (default `1`) |
 
 ## Routes

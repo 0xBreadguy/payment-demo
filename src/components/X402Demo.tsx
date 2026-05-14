@@ -95,7 +95,7 @@ export function X402Demo() {
 
       {state.kind === "success" && (
         <div className="mt-4 space-y-3">
-          <ProtectedImageResult data={state.data} />
+          <ProtectedImageResult data={state.data} layout="compact" />
           <div>
             <p className="text-xs uppercase tracking-wider text-emerald-400">Response</p>
             <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-black/40 p-3 font-mono text-[11px] text-white/80">

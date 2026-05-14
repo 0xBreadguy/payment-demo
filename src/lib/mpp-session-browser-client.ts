@@ -286,12 +286,6 @@ export async function payMppSessionRequest(
       ...permit2SigParams,
       signature: permit2Signature,
     });
-    console.log("[mpp-session] permit2 open sig", {
-      permit2SigParams,
-      signature: permit2Signature,
-      recovered,
-      payer: account,
-    });
     if (recovered.toLowerCase() !== account.toLowerCase()) {
       throw new Error(
         `Permit2 signature recovers to ${recovered}, expected ${account}. Wallet digest mismatch.`,

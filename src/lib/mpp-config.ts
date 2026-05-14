@@ -18,15 +18,7 @@ export function getMppSecretKey(): string | undefined {
 }
 
 export function getMppPayToAddress(): Address | null {
-  const candidates = [
-    process.env.MPP_PAY_TO,
-    process.env.NEXT_PUBLIC_MPP_PAY_TO,
-    process.env.X402_PAY_TO,
-    process.env.NEXT_PUBLIC_X402_PAY_TO,
-  ];
-  for (const candidate of candidates) {
-    if (candidate) return getAddress(candidate);
-  }
+  if (process.env.PAY_TO) return getAddress(process.env.PAY_TO);
   const pk = process.env.SERVER_PRIVATE_KEY;
   if (pk) {
     const normalized = (pk.startsWith("0x") ? pk : `0x${pk}`) as `0x${string}`;
@@ -39,6 +31,6 @@ export function getMppReadiness(): MppReadiness {
   const missingEnv: string[] = [];
   if (!getMppSecretKey()) missingEnv.push("MPP_SECRET_KEY");
   if (!getMppPayToAddress())
-    missingEnv.push("MPP_PAY_TO (or X402_PAY_TO, or SERVER_PRIVATE_KEY)");
+    missingEnv.push("PAY_TO (or SERVER_PRIVATE_KEY)");
   return { ready: missingEnv.length === 0, missingEnv };
 }

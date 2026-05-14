@@ -4,8 +4,7 @@ import { USDM_ADDRESS } from "./usdm";
 
 export const X402_NETWORK = `eip155:${megaethTestnet.id}` as const;
 
-const TOKEN_ADDRESS_RAW = process.env.NEXT_PUBLIC_X402_TOKEN_ADDRESS ?? USDM_ADDRESS;
-export const X402_TOKEN_ADDRESS: Address = getAddress(TOKEN_ADDRESS_RAW);
+export const X402_TOKEN_ADDRESS: Address = USDM_ADDRESS;
 export const X402_TOKEN_NAME = process.env.NEXT_PUBLIC_X402_TOKEN_NAME ?? "USDm";
 export const X402_TOKEN_VERSION = process.env.NEXT_PUBLIC_X402_TOKEN_VERSION ?? "1";
 
@@ -26,6 +25,5 @@ export function getFacilitatorUrl(req?: Request): string {
 }
 
 export function getPayToAddress(fallback: Address): Address {
-  const env = process.env.NEXT_PUBLIC_X402_PAY_TO ?? process.env.X402_PAY_TO;
-  return env ? getAddress(env) : fallback;
+  return process.env.PAY_TO ? getAddress(process.env.PAY_TO) : fallback;
 }

@@ -173,18 +173,6 @@ function getMppx(realm: string): MppxHandler {
                 permit2Deadline,
                 permit2Signature,
               ] as const;
-              console.log("[mpp-session] openWithPermit2 args", {
-                escrowContract,
-                payer,
-                payee: sessionRecipient,
-                token,
-                deposit: deposit.toString(),
-                salt,
-                authorizedSigner,
-                permit2Nonce: permit2Nonce.toString(),
-                permit2Deadline: permit2Deadline.toString(),
-                permit2Signature,
-              });
 
               // Pre-flight check: payer's allowance + balance for Permit2.
               const allowance = (await publicClient.readContract({
@@ -230,15 +218,6 @@ function getMppx(realm: string): MppxHandler {
                 spender: escrowContract,
                 token,
               });
-              console.log("[mpp-session] preflight", {
-                permit2Allowance: allowance.toString(),
-                payerBalance: payerBalance.toString(),
-                needed: deposit.toString(),
-                serverRecoveredSigner,
-                expectedPayer: payer,
-                match:
-                  serverRecoveredSigner.toLowerCase() === payer.toLowerCase(),
-              });
               if (
                 serverRecoveredSigner.toLowerCase() !== payer.toLowerCase()
               ) {
@@ -247,40 +226,6 @@ function getMppx(realm: string): MppxHandler {
                 });
               }
 
-              const permit2Code = await publicClient.getCode({
-                address: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
-              });
-              const escrowCode = await publicClient.getCode({
-                address: escrowContract,
-              });
-              const tokenCode = await publicClient.getCode({ address: token });
-              console.log("[mpp-session] code presence", {
-                permit2: permit2Code ? permit2Code.length : 0,
-                escrow: escrowCode ? escrowCode.length : 0,
-                token: tokenCode ? tokenCode.length : 0,
-              });
-
-              // Simulate via eth_call to surface a revert reason.
-              try {
-                await publicClient.simulateContract({
-                  abi: megaethSessionEscrowAbi,
-                  account: serverAccount,
-                  address: escrowContract,
-                  args: openArgs,
-                  functionName: "openWithPermit2",
-                });
-                console.log("[mpp-session] simulate openWithPermit2 OK");
-              } catch (simErr) {
-                console.error("[mpp-session] simulate openWithPermit2 FAILED", {
-                  name: (simErr as Error)?.name,
-                  message: (simErr as Error)?.message,
-                  shortMessage: (simErr as { shortMessage?: string })
-                    ?.shortMessage,
-                  metaMessages: (simErr as { metaMessages?: string[] })
-                    ?.metaMessages,
-                  cause: (simErr as { cause?: unknown })?.cause,
-                });
-              }
               if (allowance < deposit) {
                 throw new Errors.VerificationFailedError({
                   reason: `Permit2 allowance ${allowance} < deposit ${deposit} on USDm from payer ${payer}`,

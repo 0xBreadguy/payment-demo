@@ -41,13 +41,7 @@ export function getFacilitator(): x402Facilitator | null {
     waitForTransactionReceipt: (args) => viemClient.waitForTransactionReceipt(args),
   });
 
-  cached = new x402Facilitator()
-    .onAfterSettle(async (ctx) => {
-      console.log("[x402] settled", ctx.result);
-    })
-    .onSettleFailure(async (ctx) => {
-      console.log("[x402] settle failed", ctx.error);
-    });
+  cached = new x402Facilitator();
   cached.register(X402_NETWORK, new ExactEvmScheme(evmSigner));
   return cached;
 }

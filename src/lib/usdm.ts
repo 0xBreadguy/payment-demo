@@ -1,10 +1,10 @@
 import { getAddress, parseUnits, type Address } from "viem";
 
-const DEFAULT_USDM_ADDRESS = "0x15e9f2B0A747aC05c7446559306687085D161e5C";
-
-export const USDM_ADDRESS: Address = getAddress(
-  process.env.NEXT_PUBLIC_USDM_ADDRESS ?? DEFAULT_USDM_ADDRESS,
-);
+const USDM_ADDRESS_RAW = process.env.NEXT_PUBLIC_USDM_ADDRESS;
+if (!USDM_ADDRESS_RAW) {
+  throw new Error("NEXT_PUBLIC_USDM_ADDRESS is required");
+}
+export const USDM_ADDRESS: Address = getAddress(USDM_ADDRESS_RAW);
 export const USDM_DECIMALS = 18;
 export const USDM_SYMBOL = "USDm";
 
