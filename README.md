@@ -26,17 +26,21 @@ Open http://localhost:3000.
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | client | RainbowKit / WalletConnect |
 | `NEXT_PUBLIC_MEGAETH_RPC_URL` | client | viem transport for wagmi (optional) |
 | `MEGAETH_RPC_URL` | server | viem transport for backend (optional) |
-| `SERVER_PRIVATE_KEY` | server | hex key for backend signer; required for `/api/relay` and `/api/faucet` |
+| `SERVER_PRIVATE_KEY` | server | hex key for backend signer; required for `/api/relay`, `/api/faucet`, x402 gas sponsorship, and MPP gasless charge settlement |
 | `NEXT_PUBLIC_USDM_ADDRESS` | client + server | USDm token address (shared by x402 / mpp / mpp-session) |
 | `PAY_TO` | server | Recipient of all USDm payments (falls back to server signer address) |
-| `MPP_SECRET_KEY` | server | HMAC secret for mppx 402 challenges (required for `/api/mpp/charge`) |
+| `MPP_SECRET_KEY` | server | HMAC secret for mppx 402 challenges (required for `/api/mpp/charge` and `/api/mpp/gasless-charge`) |
 | `MPP_CHARGE_AMOUNT` | server | Human-readable USDm amount (default `1`) |
+| `MPP_GASLESS_CHARGE_AMOUNT` | server | Human-readable USDm amount for the gasless MPP charge (defaults to `MPP_CHARGE_AMOUNT`, then `1`) |
+| `NEXT_PUBLIC_MPP_GASLESS_TOKEN_NAME` | client + server | Optional EIP-2612 token domain name override for permit20 signing; by default the route reads `eip712Domain()` / `name()` from the token |
+| `NEXT_PUBLIC_MPP_GASLESS_TOKEN_VERSION` | client + server | Optional EIP-2612 token domain version override for permit20 signing; by default the route reads `eip712Domain()` from the token, then falls back to `NEXT_PUBLIC_X402_TOKEN_VERSION` / `1` |
 
 ## Routes
 
 - `GET /api/health` — chain id, latest block, server signer address
 - `POST /api/relay` — broadcast a pre-signed raw transaction (`{ rawTx: "0x..." }`)
-- `GET /api/mpp/charge` — MPP `tempo.charge` protected endpoint; returns 402 without a credential, 200 + `Payment-Receipt` with one
+- `GET /api/mpp/charge` — MPP `tempo.charge` protected endpoint; plain ERC20 transfer, client pays gas
+- `GET /api/mpp/gasless-charge` — custom MPP `permit20.charge` protected endpoint; client signs EIP-2612 permit, server pays gas for `permit` + `transferFrom`
 
 ## Chain
 

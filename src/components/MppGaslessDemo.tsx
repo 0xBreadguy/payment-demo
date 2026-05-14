@@ -3,27 +3,27 @@
 import { useState } from "react";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { ProtectedImageResult } from "@/components/ProtectedImageResult";
-import { MPP_PROTECTED_PATH } from "@/lib/mpp-config";
+import { MPP_GASLESS_PROTECTED_PATH } from "@/lib/mpp-gasless-shared";
 import {
-  payMppCharge,
-  type MppChargeProgress,
-  type MppChargeSuccess,
-} from "@/lib/mpp-browser-client";
+  payMppGaslessCharge,
+  type MppGaslessChargeProgress,
+  type MppGaslessChargeSuccess,
+} from "@/lib/mpp-gasless-browser-client";
 
 type State =
   | { kind: "idle" }
   | { kind: "loading"; step: string }
-  | { kind: "success"; result: MppChargeSuccess }
+  | { kind: "success"; result: MppGaslessChargeSuccess }
   | { kind: "error"; message: string };
 
-function stepLabel(step: MppChargeProgress["step"]): string {
+function stepLabel(step: MppGaslessChargeProgress["step"]): string {
   switch (step) {
     case "requesting":
       return "Requesting challenge…";
-    case "signing":
-      return "Signing transfer in wallet…";
-    case "waiting":
-      return "Waiting for receipt…";
+    case "reading-nonce":
+      return "Reading permit nonce…";
+    case "signing-permit":
+      return "Signing permit…";
     case "submitting":
       return "Submitting credential…";
     case "done":
@@ -31,7 +31,7 @@ function stepLabel(step: MppChargeProgress["step"]): string {
   }
 }
 
-export function MppDemo() {
+export function MppGaslessDemo() {
   const { address, isConnected } = useAccount();
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
@@ -40,15 +40,18 @@ export function MppDemo() {
 
   async function previewUnpaid() {
     setUnauthorized(null);
-    setState({ kind: "loading", step: "GET /api/mpp/charge (no payment)" });
+    setState({
+      kind: "loading",
+      step: "GET /api/mpp/gasless-charge (no payment)",
+    });
     try {
-      const res = await fetch(MPP_PROTECTED_PATH);
+      const res = await fetch(MPP_GASLESS_PROTECTED_PATH);
       const text = await res.text();
       let body: unknown = text;
       try {
         body = JSON.parse(text);
       } catch {
-        // raw text (e.g., 402 with header-only payload)
+        // 402 challenge typically has empty body, the data lives in headers
       }
       const wwwAuth = res.headers.get("WWW-Authenticate");
       setUnauthorized({ status: res.status, wwwAuth, body });
@@ -69,13 +72,13 @@ export function MppDemo() {
     setUnauthorized(null);
     try {
       setState({ kind: "loading", step: "Starting…" });
-      const result = await payMppCharge({
-        walletClient,
-        publicClient,
+      const result = await payMppGaslessCharge({
         account: address,
-        targetUrl: MPP_PROTECTED_PATH,
         onProgress: (p) =>
           setState({ kind: "loading", step: stepLabel(p.step) }),
+        publicClient,
+        targetUrl: MPP_GASLESS_PROTECTED_PATH,
+        walletClient,
       });
       setState({ kind: "success", result });
     } catch (e) {
@@ -90,18 +93,18 @@ export function MppDemo() {
     <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur">
       <div className="flex flex-wrap gap-2">
         <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-white/60">
-          mpp · charge
+          mpp · gasless
         </span>
-        <span className="rounded-full border border-sky-300/25 bg-sky-300/10 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-sky-200">
-          push
+        <span className="rounded-full border border-emerald-300/25 bg-emerald-300/10 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-emerald-200">
+          pull
         </span>
       </div>
       <h3 className="mt-3 text-lg font-medium text-white">
-        MPP charge: client pays gas
+        MPP gasless charge: server pays gas
       </h3>
       <p className="mt-1 text-sm text-white/50">
-        Push payment: wallet sends ERC20 transfer directly to recipient. Client
-        pays gas, server verifies the tx hash.
+        Pull payment: wallet signs EIP-2612 permit; server pays gas for permit
+        + transferFrom.
       </p>
 
       <div className="mt-5 flex flex-wrap gap-2">
@@ -118,7 +121,9 @@ export function MppDemo() {
           onClick={payAndFetch}
           className="rounded-lg bg-white px-3 py-2 text-xs font-medium text-black transition disabled:cursor-not-allowed disabled:opacity-40 hover:bg-white/90"
         >
-          {state.kind === "loading" ? state.step : "Pay 1 USDm via MPP & Fetch"}
+          {state.kind === "loading"
+            ? state.step
+            : "Sign permit & fetch"}
         </button>
       </div>
 
@@ -141,7 +146,7 @@ export function MppDemo() {
           </div>
           <div>
             <p className="text-xs uppercase tracking-wider text-white/50">
-              Transaction
+              Server-settled transfer
             </p>
             <a
               href={state.result.explorerUrl}
