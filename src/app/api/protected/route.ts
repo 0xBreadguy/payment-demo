@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { withX402, x402ResourceServer } from "@x402/next";
-import { HTTPFacilitatorClient } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import { declareEip2612GasSponsoringExtension } from "@x402/extensions";
 import { getFacilitatorAccountAddress } from "@/lib/x402-facilitator";
@@ -10,10 +9,9 @@ import {
   X402_TOKEN_NAME,
   X402_TOKEN_VERSION,
   X402_TOKEN_PRICE,
-  getFacilitatorUrl,
   getPayToAddress,
 } from "@/lib/x402-config";
-import { getFacilitatorAuthHeaders } from "@/lib/x402-facilitator-auth";
+import { getResourceFacilitatorClient } from "@/lib/x402-resource-facilitator-client";
 import { getRandomProtectedImage } from "@/lib/protected-image";
 
 async function handler() {
@@ -30,13 +28,7 @@ const facilitatorAddress = getFacilitatorAccountAddress();
 const fallbackPayTo = (facilitatorAddress ?? "0x0000000000000000000000000000000000000000") as `0x${string}`;
 const payTo = getPayToAddress(fallbackPayTo);
 
-const facilitatorUrl = getFacilitatorUrl();
-const facilitatorClient = new HTTPFacilitatorClient({
-  url: facilitatorUrl,
-  createAuthHeaders: getFacilitatorAuthHeaders(facilitatorUrl),
-});
-
-const resourceServer = new x402ResourceServer(facilitatorClient).register(
+const resourceServer = new x402ResourceServer(getResourceFacilitatorClient()).register(
   X402_NETWORK,
   new ExactEvmScheme(),
 );
