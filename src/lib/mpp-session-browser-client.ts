@@ -19,6 +19,7 @@ import {
   megaethErc20Abi,
   PERMIT2_ADDRESS,
   recoverPermit2OpenSigner,
+  recoverPermit2TopUpSigner,
   signMegaethSessionVoucher,
   signPermit2OpenWitnessTransfer,
   signPermit2TopUpWitnessTransfer,
@@ -62,9 +63,17 @@ export type MppSessionRequestResult = {
   body: unknown;
   receipt: MppSessionReceipt;
   rawReceipt: Record<string, unknown>;
-  action: "open" | "voucher" | "topUp";
+  action: "open" | "voucher";
   txHash?: `0x${string}`;
-  topUpTxHash?: `0x${string}`;
+  explorerUrl?: string;
+};
+
+export type MppSessionTopUpResult = {
+  status: number;
+  receipt: MppSessionReceipt;
+  rawReceipt: Record<string, unknown>;
+  additionalDeposit: string;
+  txHash?: `0x${string}`;
   explorerUrl?: string;
 };
 
@@ -219,8 +228,13 @@ export async function payMppSessionRequest(
         : undefined,
   });
 
-  let action: "open" | "voucher" | "topUp" = "voucher";
-  let topUpTxHash: `0x${string}` | undefined;
+  if (plan.action === "topUp") {
+    throw new Error(
+      `MPP session balance is too low. Top up ${configuredDepositHuman} USDm before signing another pay voucher.`,
+    );
+  }
+
+  let action: "open" | "voucher" = "voucher";
   let credential: string;
   let nextState: MppSessionLocalState = state;
 
@@ -330,7 +344,7 @@ export async function payMppSessionRequest(
       opened: true,
       units: state.units + 1,
     };
-  } else if (plan.action === "voucher") {
+  } else {
     if (!state.channelId) {
       throw new Error("Missing channelId for voucher flow");
     }
@@ -364,94 +378,6 @@ export async function payMppSessionRequest(
       opened: true,
       units: state.units + 1,
     };
-  } else {
-    if (!state.channelId || state.depositAmount === undefined) {
-      throw new Error("Missing channel state for top-up flow");
-    }
-    action = "topUp";
-
-    await ensurePermit2Approval({
-      publicClient,
-      walletClient,
-      account,
-      token: currency,
-      requiredAmount: plan.additionalDeposit,
-      onProgress,
-    });
-
-    onProgress?.({ step: "signing-permit2" });
-    const permit2Nonce = BigInt(
-      toHex(crypto.getRandomValues(new Uint8Array(32))),
-    );
-    const permit2Deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
-    const permit2Signature = await signPermit2TopUpWitnessTransfer({
-      account: walletClient.account!,
-      amount: plan.additionalDeposit,
-      chainId,
-      channelId: state.channelId,
-      client: walletClient,
-      deadline: permit2Deadline,
-      nonce: permit2Nonce,
-      spender: escrowContract,
-      token: currency,
-    });
-
-    const topUpCredential = Credential.serialize({
-      challenge,
-      payload: {
-        action: "topUp",
-        additionalDeposit: plan.additionalDeposit.toString(),
-        channelId: state.channelId,
-        permit2Deadline: permit2Deadline.toString(),
-        permit2Nonce: permit2Nonce.toString(),
-        permit2Signature,
-        type: "permit2",
-      },
-      source: createMegaethSessionSource(chainId, account),
-    });
-
-    onProgress?.({ step: "submitting" });
-    const topUpResponse = await fetch(targetUrl, {
-      method: "POST",
-      headers: { Authorization: topUpCredential },
-    });
-    if (topUpResponse.status !== 200) {
-      const text = await topUpResponse.text();
-      throw new Error(`top-up rejected (${topUpResponse.status}): ${text}`);
-    }
-    const topUpRaw = decodeRawReceiptHeader(topUpResponse);
-    const topUpParsed = buildSessionReceipt(topUpRaw);
-    topUpTxHash = topUpParsed.txHash as `0x${string}` | undefined;
-
-    onProgress?.({ step: "signing-voucher" });
-    const signature = await signMegaethSessionVoucher({
-      account: walletClient.account!,
-      chainId,
-      channelId: state.channelId,
-      client: walletClient,
-      cumulativeAmount: plan.nextCumulativeAmount,
-      escrowContract,
-    });
-
-    credential = Credential.serialize({
-      challenge,
-      payload: {
-        action: "voucher",
-        channelId: state.channelId,
-        cumulativeAmount: plan.nextCumulativeAmount.toString(),
-        signature,
-      },
-      source: createMegaethSessionSource(chainId, account),
-    });
-
-    nextState = {
-      ...state,
-      cumulativeAmount: plan.nextCumulativeAmount,
-      depositAmount: state.depositAmount + plan.additionalDeposit,
-      escrowContract,
-      opened: true,
-      units: state.units + 1,
-    };
   }
 
   onProgress?.({ step: "submitting" });
@@ -475,9 +401,7 @@ export async function payMppSessionRequest(
   const explorerUrl =
     action === "open" && txHash
       ? megaethTxUrl(txHash)
-      : action === "topUp" && topUpTxHash
-        ? megaethTxUrl(topUpTxHash)
-        : undefined;
+      : undefined;
 
   onProgress?.({ step: "done" });
 
@@ -489,10 +413,146 @@ export async function payMppSessionRequest(
       rawReceipt,
       receipt,
       status: finalResponse.status,
-      topUpTxHash,
       txHash,
     },
     nextState,
+  };
+}
+
+export async function topUpMppSession(
+  options: MppSessionOptions,
+): Promise<{ result: MppSessionTopUpResult; nextState: MppSessionLocalState }> {
+  const {
+    walletClient,
+    publicClient,
+    account,
+    targetUrl,
+    configuredDepositHuman,
+    state,
+    onProgress,
+  } = options;
+
+  if (
+    !state.channelId ||
+    state.depositAmount === undefined ||
+    !state.escrowContract ||
+    !state.opened
+  ) {
+    throw new Error("No active session to top up");
+  }
+
+  const additionalDeposit = parseUnits(configuredDepositHuman, USDM_DECIMALS);
+  if (additionalDeposit <= BigInt(0)) {
+    throw new Error("Top-up amount must be greater than zero");
+  }
+
+  onProgress?.({ step: "requesting" });
+  const challengeResponse = await fetch(targetUrl, { method: "POST" });
+  if (challengeResponse.status !== 402) {
+    const text = await challengeResponse.text();
+    throw new Error(
+      `Expected 402 top-up challenge, got ${challengeResponse.status}: ${text}`,
+    );
+  }
+
+  const challenge = parseChallenge(challengeResponse);
+  const chainId = challenge.request.methodDetails?.chainId ?? megaethTestnet.id;
+  const currency = challenge.request.currency as Address;
+  const escrowContract = (challenge.request.methodDetails?.escrowContract ??
+    state.escrowContract) as Address;
+  if (!escrowContract) {
+    throw new Error("escrowContract missing from challenge and state");
+  }
+
+  const balance = await getMegaethErc20Balance(publicClient, currency, account);
+  if (balance < additionalDeposit) {
+    throw new Error(
+      `Insufficient USDm balance: need ${additionalDeposit}, have ${balance}. Faucet some USDm first.`,
+    );
+  }
+
+  await ensurePermit2Approval({
+    publicClient,
+    walletClient,
+    account,
+    token: currency,
+    requiredAmount: additionalDeposit,
+    onProgress,
+  });
+
+  onProgress?.({ step: "signing-permit2" });
+  const permit2Nonce = BigInt(toHex(crypto.getRandomValues(new Uint8Array(32))));
+  const permit2Deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
+  const permit2SigParams = {
+    amount: additionalDeposit,
+    chainId,
+    channelId: state.channelId,
+    deadline: permit2Deadline,
+    nonce: permit2Nonce,
+    spender: escrowContract,
+    token: currency,
+  };
+  const permit2Signature = await signPermit2TopUpWitnessTransfer({
+    ...permit2SigParams,
+    account: walletClient.account!,
+    client: walletClient,
+  });
+
+  const recovered = await recoverPermit2TopUpSigner({
+    ...permit2SigParams,
+    signature: permit2Signature,
+  });
+  if (recovered.toLowerCase() !== account.toLowerCase()) {
+    throw new Error(
+      `Permit2 top-up signature recovers to ${recovered}, expected ${account}. Wallet digest mismatch.`,
+    );
+  }
+
+  const credential = Credential.serialize({
+    challenge,
+    payload: {
+      action: "topUp",
+      additionalDeposit: additionalDeposit.toString(),
+      channelId: state.channelId,
+      permit2Deadline: permit2Deadline.toString(),
+      permit2Nonce: permit2Nonce.toString(),
+      permit2Signature,
+      type: "permit2",
+    },
+    source: createMegaethSessionSource(chainId, account),
+  });
+
+  onProgress?.({ step: "submitting" });
+  const response = await fetch(targetUrl, {
+    method: "POST",
+    headers: { Authorization: credential },
+  });
+  if (response.status !== 200) {
+    const text = await response.text();
+    throw new Error(`top-up rejected (${response.status}): ${text}`);
+  }
+
+  const rawReceipt = decodeRawReceiptHeader(response);
+  const receipt = buildSessionReceipt(rawReceipt);
+  const txHash = receipt.txHash as `0x${string}` | undefined;
+
+  onProgress?.({ step: "done" });
+
+  return {
+    result: {
+      additionalDeposit: additionalDeposit.toString(),
+      explorerUrl: txHash ? megaethTxUrl(txHash) : undefined,
+      rawReceipt,
+      receipt,
+      status: response.status,
+      txHash,
+    },
+    nextState: {
+      ...state,
+      depositAmount: state.depositAmount + additionalDeposit,
+      escrowContract,
+      opened: true,
+    },
   };
 }
 

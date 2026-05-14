@@ -1,26 +1,29 @@
 "use client";
 
 import { useState } from "react";
-import { formatUnits } from "viem";
+import { formatUnits, parseUnits } from "viem";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { ProtectedImageResult } from "@/components/ProtectedImageResult";
-import { megaethTxUrl } from "@/lib/chain";
 import {
   MPP_SESSION_DEPOSIT_AMOUNT_HUMAN,
   MPP_SESSION_PROTECTED_PATH,
   MPP_SESSION_REQUEST_AMOUNT_HUMAN,
 } from "@/lib/mpp-session-config";
 import {
+  canPayMppSessionRequest,
+  getMppSessionRemainingAmount,
   getMppSessionRequestDisplayNumber,
   prependMppSessionRequest,
 } from "@/lib/mpp-session-feed";
 import {
   closeMppSession,
   payMppSessionRequest,
+  topUpMppSession,
   type MppSessionCloseResult,
   type MppSessionLocalState,
   type MppSessionProgress,
   type MppSessionRequestResult,
+  type MppSessionTopUpResult,
 } from "@/lib/mpp-session-browser-client";
 import { USDM_DECIMALS, USDM_SYMBOL } from "@/lib/usdm";
 
@@ -86,7 +89,19 @@ export function MppSessionDemo() {
   const [closeResult, setCloseResult] = useState<MppSessionCloseResult | null>(
     null,
   );
+  const [topUpResult, setTopUpResult] = useState<MppSessionTopUpResult | null>(
+    null,
+  );
+  const [topUpError, setTopUpError] = useState<string | null>(null);
   const [unauthorized, setUnauthorized] = useState<unknown>(null);
+  const loading = phase.kind === "loading";
+  const requestAmount = parseUnits(
+    MPP_SESSION_REQUEST_AMOUNT_HUMAN,
+    USDM_DECIMALS,
+  );
+  const remainingAmount = getMppSessionRemainingAmount(state);
+  const canPay = canPayMppSessionRequest(state, requestAmount);
+  const needsTopUp = state.opened && !canPay;
 
   async function previewUnpaid() {
     setUnauthorized(null);
@@ -116,6 +131,13 @@ export function MppSessionDemo() {
       setPhase({ kind: "error", message: "Connect wallet first" });
       return;
     }
+    if (!canPay) {
+      setPhase({
+        kind: "error",
+        message: `Session balance is too low. Top up ${MPP_SESSION_DEPOSIT_AMOUNT_HUMAN} ${USDM_SYMBOL} before signing another pay voucher.`,
+      });
+      return;
+    }
     setUnauthorized(null);
     setCloseResult(null);
     try {
@@ -137,6 +159,44 @@ export function MppSessionDemo() {
       setPhase({
         kind: "error",
         message: e instanceof Error ? e.message : "payment failed",
+      });
+    }
+  }
+
+  async function topUpSession() {
+    if (!isConnected || !address || !walletClient || !publicClient) {
+      setPhase({ kind: "error", message: "Connect wallet first" });
+      return;
+    }
+    if (!state.opened) {
+      setPhase({ kind: "error", message: "Open a session before top-up" });
+      return;
+    }
+    setUnauthorized(null);
+    setCloseResult(null);
+    setTopUpResult(null);
+    setTopUpError(null);
+    try {
+      setPhase({ kind: "loading", step: "Starting top-up…" });
+      const { result, nextState } = await topUpMppSession({
+        account: address,
+        configuredDepositHuman: MPP_SESSION_DEPOSIT_AMOUNT_HUMAN,
+        onProgress: (p) =>
+          setPhase({ kind: "loading", step: stepLabel(p.step) }),
+        publicClient,
+        state,
+        targetUrl: MPP_SESSION_PROTECTED_PATH,
+        walletClient,
+      });
+      setTopUpResult(result);
+      setState(nextState);
+      setPhase({ kind: "idle" });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "top-up failed";
+      setTopUpError(message);
+      setPhase({
+        kind: "error",
+        message,
       });
     }
   }
@@ -176,11 +236,11 @@ export function MppSessionDemo() {
     setState(initialState);
     setRequests([]);
     setCloseResult(null);
+    setTopUpResult(null);
+    setTopUpError(null);
     setUnauthorized(null);
     setPhase({ kind: "idle" });
   }
-
-  const loading = phase.kind === "loading";
 
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur">
@@ -209,7 +269,7 @@ export function MppSessionDemo() {
         </button>
         <button
           type="button"
-          disabled={!isConnected || loading}
+          disabled={!isConnected || loading || !canPay}
           onClick={payOnce}
           className="rounded-lg bg-white px-3 py-2 text-xs font-medium text-black transition disabled:cursor-not-allowed disabled:opacity-40 hover:bg-white/90"
         >
@@ -218,6 +278,14 @@ export function MppSessionDemo() {
             : state.opened
               ? `Pay ${MPP_SESSION_REQUEST_AMOUNT_HUMAN} ${USDM_SYMBOL} (voucher)`
               : `Open & pay first ${MPP_SESSION_REQUEST_AMOUNT_HUMAN} ${USDM_SYMBOL}`}
+        </button>
+        <button
+          type="button"
+          disabled={!isConnected || !state.opened || loading}
+          onClick={topUpSession}
+          className="rounded-lg border border-emerald-300/30 px-3 py-2 text-xs font-medium text-emerald-200 transition hover:bg-emerald-300/10 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          Top up {MPP_SESSION_DEPOSIT_AMOUNT_HUMAN} {USDM_SYMBOL}
         </button>
         <button
           type="button"
@@ -235,6 +303,20 @@ export function MppSessionDemo() {
           Reset UI
         </button>
       </div>
+
+      {needsTopUp && (
+        <p className="mt-3 rounded-lg border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">
+          Session balance is {fmt(remainingAmount)}. Top up{" "}
+          {MPP_SESSION_DEPOSIT_AMOUNT_HUMAN} {USDM_SYMBOL} before signing
+          another pay voucher.
+        </p>
+      )}
+
+      {topUpError && (
+        <p className="mt-3 break-words rounded-lg border border-red-400/20 bg-red-400/10 px-3 py-2 font-mono text-[11px] text-red-300">
+          Top-up failed: {topUpError}
+        </p>
+      )}
 
       <div className="mt-5 grid grid-cols-2 gap-3 rounded-xl bg-black/30 p-4 font-mono text-[11px] text-white/70 sm:grid-cols-3">
         <div>
@@ -261,6 +343,12 @@ export function MppSessionDemo() {
           </p>
           <p>{fmt(state.depositAmount)}</p>
         </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-white/40">
+            Remaining
+          </p>
+          <p>{fmt(remainingAmount)}</p>
+        </div>
         <div className="col-span-2 sm:col-span-2">
           <p className="text-[10px] uppercase tracking-wider text-white/40">
             channelId
@@ -273,6 +361,31 @@ export function MppSessionDemo() {
         <pre className="mt-4 max-h-48 overflow-auto rounded-lg bg-black/40 p-3 font-mono text-[11px] text-white/70">
 {JSON.stringify(unauthorized, null, 2)}
         </pre>
+      )}
+
+      {topUpResult && (
+        <div className="mt-5 space-y-2">
+          <p className="text-xs uppercase tracking-wider text-emerald-400">
+            Top-up
+          </p>
+          <div className="rounded-lg bg-black/40 p-3 font-mono text-[11px] text-white/80">
+            {topUpResult.explorerUrl && topUpResult.txHash ? (
+              <a
+                href={topUpResult.explorerUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="block break-all text-sky-300 underline-offset-2 hover:underline"
+              >
+                top-up tx · {shortHex(topUpResult.txHash)}
+              </a>
+            ) : (
+              <p className="text-white/50">top-up accepted</p>
+            )}
+            <p className="mt-1 text-white/50">
+              added {fmtBaseUnits(topUpResult.additionalDeposit)}
+            </p>
+          </div>
+        </div>
       )}
 
       {closeResult && (
@@ -331,16 +444,6 @@ export function MppSessionDemo() {
                     className="mt-1 block break-all text-sky-300 underline-offset-2 hover:underline"
                   >
                     open tx · {shortHex(entry.txHash)}
-                  </a>
-                )}
-                {entry.topUpTxHash && (
-                  <a
-                    href={megaethTxUrl(entry.topUpTxHash)}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-1 block break-all text-sky-300 underline-offset-2 hover:underline"
-                  >
-                    top-up tx · {shortHex(entry.topUpTxHash)}
                   </a>
                 )}
                 <div className="mt-3">
