@@ -375,6 +375,16 @@ type Permit2OpenSigParams = {
   token: Address;
 };
 
+type Permit2TopUpSigParams = {
+  amount: bigint;
+  chainId: number;
+  channelId: Hex;
+  deadline: bigint;
+  nonce: bigint;
+  spender: Address;
+  token: Address;
+};
+
 export function buildPermit2OpenTypedData(p: Permit2OpenSigParams) {
   return {
     domain: {
@@ -419,44 +429,42 @@ export async function recoverPermit2OpenSigner(parameters: {
   });
 }
 
-export async function signPermit2TopUpWitnessTransfer(parameters: {
-  account: Account;
-  amount: bigint;
-  chainId: number;
-  channelId: Hex;
-  client: Client;
-  deadline: bigint;
-  nonce: bigint;
-  spender: Address;
-  token: Address;
-}) {
-  const {
-    account,
-    amount,
-    chainId,
-    channelId,
-    client,
-    deadline,
-    nonce,
-    spender,
-    token,
-  } = parameters;
-
-  return signTypedData(client, {
-    account,
+export function buildPermit2TopUpTypedData(p: Permit2TopUpSigParams) {
+  return {
     domain: {
-      chainId,
+      chainId: p.chainId,
       name: "Permit2",
       verifyingContract: PERMIT2_ADDRESS,
     },
     message: {
-      permitted: { token, amount },
-      spender,
-      nonce,
-      deadline,
-      witness: { channelId },
+      permitted: { token: p.token, amount: p.amount },
+      spender: p.spender,
+      nonce: p.nonce,
+      deadline: p.deadline,
+      witness: { channelId: p.channelId },
     },
-    primaryType: "PermitWitnessTransferFrom",
+    primaryType: "PermitWitnessTransferFrom" as const,
     types: permit2TopUpWitnessTypes,
+  };
+}
+
+export async function signPermit2TopUpWitnessTransfer(parameters: {
+  account: Account;
+  client: Client;
+} & Permit2TopUpSigParams) {
+  const { account, client, ...rest } = parameters;
+  return signTypedData(client, {
+    account,
+    ...buildPermit2TopUpTypedData(rest),
+  });
+}
+
+export async function recoverPermit2TopUpSigner(parameters: {
+  signature: Hex;
+} & Permit2TopUpSigParams) {
+  const { signature, ...rest } = parameters;
+  return recoverTypedDataAddress({
+    ...buildPermit2TopUpTypedData(rest),
+    signature,
   });
 }

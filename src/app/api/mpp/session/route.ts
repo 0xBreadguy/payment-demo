@@ -16,6 +16,7 @@ import {
   hydrateMegaethSessionChannelState,
   type MegaethSessionChannelState,
   recoverPermit2OpenSigner,
+  recoverPermit2TopUpSigner,
   validateMegaethSessionChannel,
   verifyMegaethSessionVoucher,
 } from "@/lib/megaeth-session";
@@ -392,6 +393,25 @@ function getMppx(realm: string): MppxHandler {
               const permit2Nonce = BigInt(p.permit2Nonce);
               const permit2Deadline = BigInt(p.permit2Deadline);
               const permit2Signature = p.permit2Signature as Hex;
+
+              const recoveredTopUpSigner = await recoverPermit2TopUpSigner({
+                amount: additionalDeposit,
+                chainId,
+                channelId,
+                deadline: permit2Deadline,
+                nonce: permit2Nonce,
+                signature: permit2Signature,
+                spender: escrowContract,
+                token: existing.token,
+              });
+              if (
+                recoveredTopUpSigner.toLowerCase() !==
+                existing.payer.toLowerCase()
+              ) {
+                throw new Errors.VerificationFailedError({
+                  reason: "invalid MegaETH session top-up permit2 signature",
+                });
+              }
 
               const topUpHash = await writeContract(serverWalletClient, {
                 abi: megaethSessionEscrowAbi,

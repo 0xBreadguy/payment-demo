@@ -15,9 +15,10 @@ export default function Home() {
           Payment Demo Sandbox
         </h1>
         <p className="mt-3 max-w-2xl text-sm text-white/60">
-          Connect a wallet, mint test USDm, then pay 1 USDm via either x402
-          (Permit2, server-sponsored gas) or MPP (plain ERC20 transfer, client
-          pays gas) to fetch a protected endpoint.
+          Connect a wallet, mint test USDm, then try three payment flows: x402
+          (Permit2, server-sponsored gas), MPP (plain ERC20 transfer, client
+          pays gas), or MPP pay-as-you-go session (Permit2 deposit plus
+          off-chain vouchers) to fetch a protected endpoint.
         </p>
       </header>
 

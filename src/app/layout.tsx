@@ -15,7 +15,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "MegaETH Payment Demo",
-  description: "x402 + mpp payment demos on MegaETH testnet",
+  description:
+    "x402, MPP charge, and MPP pay-as-you-go session demos on MegaETH testnet",
 };
 
 export default function RootLayout({
