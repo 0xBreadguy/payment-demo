@@ -8,7 +8,7 @@ import { USDM_ADDRESS, USDM_DECIMALS, USDM_SYMBOL, usdmAbi } from "@/lib/usdm";
 
 export function UsdmPanel() {
   const { address, isConnected } = useAccount();
-  const [pending, setPending] = useState(false);
+  const [faucetPending, setFaucetPending] = useState(false);
   const [txHash, setTxHash] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -22,7 +22,7 @@ export function UsdmPanel() {
 
   async function handleFaucet() {
     if (!address) return;
-    setPending(true);
+    setFaucetPending(true);
     setError(null);
     setTxHash(null);
     try {
@@ -38,7 +38,7 @@ export function UsdmPanel() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "faucet failed");
     } finally {
-      setPending(false);
+      setFaucetPending(false);
     }
   }
 
@@ -71,11 +71,11 @@ export function UsdmPanel() {
 
       <button
         type="button"
-        disabled={!isConnected || pending}
+        disabled={!isConnected || faucetPending}
         onClick={handleFaucet}
-        className="mt-5 inline-flex items-center justify-center rounded-lg bg-white px-4 py-2 text-sm font-medium text-black transition disabled:cursor-not-allowed disabled:opacity-40 hover:bg-white/90"
+        className="mt-5 inline-flex min-h-10 items-center justify-center rounded-lg bg-white px-4 py-2 text-sm font-medium text-black transition disabled:cursor-not-allowed disabled:opacity-40 hover:bg-white/90"
       >
-        {pending ? "Minting…" : `Mint 100 ${USDM_SYMBOL}`}
+        {faucetPending ? "Minting..." : `Mint 100 ${USDM_SYMBOL}`}
       </button>
 
       {txHash && (

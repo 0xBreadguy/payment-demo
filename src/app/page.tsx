@@ -1,6 +1,7 @@
 import { MppDemo } from "@/components/MppDemo";
 import { MppGaslessDemo } from "@/components/MppGaslessDemo";
 import { MppSessionDemo } from "@/components/MppSessionDemo";
+import { Permit2Panel } from "@/components/Permit2Panel";
 import { UsdmPanel } from "@/components/UsdmPanel";
 import { WalletPanel } from "@/components/WalletPanel";
 import { X402Demo } from "@/components/X402Demo";
@@ -26,9 +27,12 @@ export default function Home() {
         <WalletPanel />
       </section>
 
-      <section className="grid grid-cols-1 gap-6">
+      <section className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <UsdmPanel />
-        <X402Demo />
+        <Permit2Panel />
+        <div className="md:col-span-2">
+          <X402Demo />
+        </div>
       </section>
 
       <section className="grid grid-cols-1 gap-6">
