@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { PaymentTimingMetrics } from "@/components/PaymentTimingMetrics";
 import { ProtectedImageResult } from "@/components/ProtectedImageResult";
 import { MPP_GASLESS_PROTECTED_PATH } from "@/lib/mpp-gasless-shared";
 import {
@@ -136,6 +137,7 @@ export function MppGaslessDemo() {
       {state.kind === "success" && (
         <div className="mt-4 space-y-3">
           <ProtectedImageResult data={state.result.body} layout="compact" />
+          <PaymentTimingMetrics timing={state.result.timing} />
           <div>
             <p className="text-xs uppercase tracking-wider text-emerald-400">
               Response

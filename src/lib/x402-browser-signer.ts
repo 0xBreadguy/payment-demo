@@ -7,17 +7,21 @@ export function buildBrowserSigner(
   walletClient: WalletClient,
   publicClient: PublicClient,
   address: Address,
+  options: { onSignedPayment?: () => void } = {},
 ): ClientEvmSigner {
   return {
     address,
-    signTypedData: async (msg) =>
-      walletClient.signTypedData({
+    signTypedData: async (msg) => {
+      const signature = await walletClient.signTypedData({
         account: address,
         domain: msg.domain as Parameters<WalletClient["signTypedData"]>[0]["domain"],
         types: msg.types as Parameters<WalletClient["signTypedData"]>[0]["types"],
         primaryType: msg.primaryType,
         message: msg.message as Parameters<WalletClient["signTypedData"]>[0]["message"],
-      }),
+      });
+      options.onSignedPayment?.();
+      return signature;
+    },
     readContract: (args) =>
       publicClient.readContract({
         ...args,

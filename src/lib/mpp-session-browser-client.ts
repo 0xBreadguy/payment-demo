@@ -32,6 +32,11 @@ import {
   selectPermit20Domain,
   signPermit20,
 } from "./mpp-permit20";
+import {
+  mergePaymentTiming,
+  readServerPaymentTiming,
+  type PaymentTiming,
+} from "./payment-timing.ts";
 import { USDM_DECIMALS } from "./usdm";
 
 export type MppSessionProgressStep =
@@ -71,6 +76,7 @@ export type MppSessionRequestResult = {
   body: unknown;
   receipt: MppSessionReceipt;
   rawReceipt: Record<string, unknown>;
+  timing: PaymentTiming;
   action: "open" | "voucher";
   txHash?: `0x${string}`;
   explorerUrl?: string;
@@ -81,6 +87,7 @@ export type MppSessionTopUpResult = {
   receipt: MppSessionReceipt;
   rawReceipt: Record<string, unknown>;
   additionalDeposit: string;
+  timing: PaymentTiming;
   txHash?: `0x${string}`;
   explorerUrl?: string;
 };
@@ -90,6 +97,7 @@ export type MppSessionCloseResult = {
   receipt: MppSessionReceipt;
   rawReceipt: Record<string, unknown>;
   refundAmount: string;
+  timing: PaymentTiming;
   txHash: `0x${string}`;
   explorerUrl: string;
 };
@@ -487,6 +495,7 @@ export async function payMppSessionRequest(
   }
 
   onProgress?.({ step: "submitting" });
+  const totalStartedAt = performance.now();
   const finalResponse = await fetch(targetUrl, {
     headers: { Authorization: credential },
   });
@@ -499,6 +508,13 @@ export async function payMppSessionRequest(
   const body = bodyText ? JSON.parse(bodyText) : null;
   const rawReceipt = decodeRawReceiptHeader(finalResponse);
   const receipt = buildSessionReceipt(rawReceipt);
+  const timing = mergePaymentTiming({
+    client: {
+      chainSide: "unknown",
+      totalMs: performance.now() - totalStartedAt,
+    },
+    server: readServerPaymentTiming(finalResponse.headers),
+  });
 
   const txHash =
     action === "open"
@@ -519,6 +535,7 @@ export async function payMppSessionRequest(
       rawReceipt,
       receipt,
       status: finalResponse.status,
+      timing,
       txHash,
     },
     nextState,
@@ -631,6 +648,7 @@ export async function topUpMppSession(
   });
 
   onProgress?.({ step: "submitting" });
+  const totalStartedAt = performance.now();
   const response = await fetch(targetUrl, {
     method: "POST",
     headers: { Authorization: credential },
@@ -643,6 +661,13 @@ export async function topUpMppSession(
   const rawReceipt = decodeRawReceiptHeader(response);
   const receipt = buildSessionReceipt(rawReceipt);
   const txHash = receipt.txHash as `0x${string}` | undefined;
+  const timing = mergePaymentTiming({
+    client: {
+      chainSide: "unknown",
+      totalMs: performance.now() - totalStartedAt,
+    },
+    server: readServerPaymentTiming(response.headers),
+  });
 
   onProgress?.({ step: "done" });
 
@@ -653,6 +678,7 @@ export async function topUpMppSession(
       rawReceipt,
       receipt,
       status: response.status,
+      timing,
       txHash,
     },
     nextState: {
@@ -718,6 +744,7 @@ export async function closeMppSession(options: {
   });
 
   onProgress?.({ step: "submitting" });
+  const totalStartedAt = performance.now();
   const response = await fetch(targetUrl, {
     method: "POST",
     headers: { Authorization: credential },
@@ -729,6 +756,13 @@ export async function closeMppSession(options: {
   const rawReceipt = decodeRawReceiptHeader(response);
   const receipt = buildSessionReceipt(rawReceipt);
   const txHash = (receipt.txHash ?? "") as `0x${string}`;
+  const timing = mergePaymentTiming({
+    client: {
+      chainSide: "unknown",
+      totalMs: performance.now() - totalStartedAt,
+    },
+    server: readServerPaymentTiming(response.headers),
+  });
 
   onProgress?.({ step: "done" });
 
@@ -742,6 +776,7 @@ export async function closeMppSession(options: {
         state.cumulativeAmount,
       ),
       status: response.status,
+      timing,
       txHash,
     },
     nextState: {

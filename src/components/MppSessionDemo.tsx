@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { formatUnits, parseUnits } from "viem";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { PaymentTimingMetrics } from "@/components/PaymentTimingMetrics";
 import { ProtectedImageResult } from "@/components/ProtectedImageResult";
 import {
   MPP_SESSION_DEPOSIT_AMOUNT_HUMAN,
@@ -120,6 +121,9 @@ function MppSessionEventCard({ event }: { event: MppSessionEvent }) {
         ) : (
           <p className="mt-1 text-white/50">top-up accepted</p>
         )}
+        <div className="mt-2">
+          <PaymentTimingMetrics timing={entry.timing} />
+        </div>
       </div>
     );
   }
@@ -145,6 +149,9 @@ function MppSessionEventCard({ event }: { event: MppSessionEvent }) {
         <p className="mt-1 text-white/50">
           refunded {fmtBaseUnits(entry.refundAmount)}
         </p>
+        <div className="mt-2">
+          <PaymentTimingMetrics timing={entry.timing} />
+        </div>
       </div>
     );
   }
@@ -170,6 +177,9 @@ function MppSessionEventCard({ event }: { event: MppSessionEvent }) {
           open tx · {shortHex(entry.txHash)}
         </a>
       )}
+      <div className="mt-2">
+        <PaymentTimingMetrics timing={entry.timing} />
+      </div>
       <div className="mt-3">
         <ProtectedImageResult data={entry.body} layout="compact" />
       </div>

@@ -42,6 +42,11 @@ import {
 } from "@/lib/mpp-session-permit20-approval";
 import { getMppSessionStateStore } from "@/lib/mpp-session-store";
 import { permit20Erc20Abi, selectPermit20Domain } from "@/lib/mpp-permit20";
+import {
+  attachPaymentServerTiming,
+  collectPaymentServerTiming,
+  recordPaymentOnChainSegment,
+} from "@/lib/payment-timing-server";
 
 // Relax credential payload to accept the Permit2 variants of open/topUp.
 const sessionMethodWithPermit2 = Method.from({
@@ -54,6 +59,11 @@ const sessionMethodWithPermit2 = Method.from({
 });
 
 type MppxHandler = ReturnType<typeof Mppx.create<readonly [ReturnType<typeof Method.toServer>]>>;
+type MppxPaymentResult = {
+  challenge: Response;
+  status: number;
+  withReceipt: (response: Response) => Response;
+};
 
 let cached: MppxHandler | null = null;
 let cachedRealm: string | null = null;
@@ -217,6 +227,7 @@ async function sponsorPermit20Approval(parameters: {
 
   const { r, s } = parseSignature(payload.signature);
   const v = getRecoveryId(payload.signature);
+  const permit20StartedAt = performance.now();
   const permitHash = await writeContract(serverWalletClient, {
     abi: permit20Erc20Abi,
     account: serverAccount!,
@@ -225,6 +236,11 @@ async function sponsorPermit20Approval(parameters: {
     functionName: "permit",
   });
   await waitForTransactionReceipt(serverWalletClient, { hash: permitHash });
+  recordPaymentOnChainSegment({
+    durationMs: performance.now() - permit20StartedAt,
+    hash: permitHash,
+    label: "permit20 approval",
+  });
   return permitHash;
 }
 
@@ -426,6 +442,7 @@ function getMppx(realm: string): MppxHandler {
                   token,
                 });
 
+              const openStartedAt = performance.now();
               const openHash = await writeContract(serverWalletClient, {
                 abi: megaethSessionEscrowAbi,
                 account: serverAccount,
@@ -436,6 +453,11 @@ function getMppx(realm: string): MppxHandler {
 
               await waitForTransactionReceipt(serverWalletClient, {
                 hash: openHash,
+              });
+              recordPaymentOnChainSegment({
+                durationMs: performance.now() - openStartedAt,
+                hash: openHash,
+                label: "openWithPermit2",
               });
 
               const onChain = await getOnChainMegaethSessionChannel(
@@ -624,6 +646,7 @@ function getMppx(realm: string): MppxHandler {
                   token: existing.token,
                 });
 
+              const topUpStartedAt = performance.now();
               const topUpHash = await writeContract(serverWalletClient, {
                 abi: megaethSessionEscrowAbi,
                 account: serverAccount,
@@ -640,6 +663,11 @@ function getMppx(realm: string): MppxHandler {
 
               await waitForTransactionReceipt(serverWalletClient, {
                 hash: topUpHash,
+              });
+              recordPaymentOnChainSegment({
+                durationMs: performance.now() - topUpStartedAt,
+                hash: topUpHash,
+                label: "topUpWithPermit2",
               });
 
               const onChain = await getOnChainMegaethSessionChannel(
@@ -734,6 +762,7 @@ function getMppx(realm: string): MppxHandler {
                 });
               }
 
+              const closeStartedAt = performance.now();
               const closeHash = await writeContract(serverWalletClient, {
                 abi: megaethSessionEscrowAbi,
                 account: serverAccount,
@@ -744,6 +773,11 @@ function getMppx(realm: string): MppxHandler {
 
               await waitForTransactionReceipt(serverWalletClient, {
                 hash: closeHash,
+              });
+              recordPaymentOnChainSegment({
+                durationMs: performance.now() - closeStartedAt,
+                hash: closeHash,
+                label: "close",
               });
 
               const closedChannel = await getOnChainMegaethSessionChannel(
@@ -807,20 +841,26 @@ async function handle(request: NextRequest): Promise<Response> {
   const realm = new URL(request.url).host;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const mppx = getMppx(realm) as any;
-  const result = await mppx.tempo.session({})(request);
+  const { timing, value: result } =
+    await collectPaymentServerTiming<MppxPaymentResult>(() =>
+      mppx.tempo.session({})(request),
+    );
 
   if (result.status === 402) {
     return result.challenge;
   }
 
-  return result.withReceipt(
-    NextResponse.json({
-      ok: true,
-      route: "mpp/session",
-      message: "MegaETH session payment accepted.",
-      when: new Date().toISOString(),
-      image: getRandomProtectedImage(),
-    }),
+  return attachPaymentServerTiming(
+    result.withReceipt(
+      NextResponse.json({
+        ok: true,
+        route: "mpp/session",
+        message: "MegaETH session payment accepted.",
+        when: new Date().toISOString(),
+        image: getRandomProtectedImage(),
+      }),
+    ),
+    timing,
   );
 }
 

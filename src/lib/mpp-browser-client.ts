@@ -6,6 +6,11 @@ import {
 } from "viem";
 import { Challenge, Credential, Receipt } from "mppx";
 import { megaethTestnet, megaethTxUrl } from "./chain";
+import {
+  mergePaymentTiming,
+  readServerPaymentTiming,
+  type PaymentTiming,
+} from "./payment-timing.ts";
 
 const erc20Abi = parseAbi([
   "function transfer(address to, uint256 amount) returns (bool)",
@@ -24,6 +29,7 @@ export type MppChargeSuccess = {
   status: number;
   body: unknown;
   receipt: Receipt.Receipt;
+  timing: PaymentTiming;
   txHash: `0x${string}`;
   explorerUrl: string;
 };
@@ -81,7 +87,10 @@ export async function payMppCharge(
   });
 
   onProgress?.({ step: "waiting" });
+  const totalStartedAt = performance.now();
+  const chainStartedAt = totalStartedAt;
   await publicClient.waitForTransactionReceipt({ hash: txHash });
+  const onChainMs = performance.now() - chainStartedAt;
 
   const chainId =
     challenge.request.methodDetails?.chainId ?? megaethTestnet.id;
@@ -104,12 +113,22 @@ export async function payMppCharge(
   const body = bodyText ? JSON.parse(bodyText) : null;
   const receipt = Receipt.fromResponse(finalResponse);
   const explorerUrl = megaethTxUrl(txHash);
+  const timing = mergePaymentTiming({
+    client: {
+      chainSegments: [{ durationMs: onChainMs, hash: txHash, label: "transfer" }],
+      chainSide: "client",
+      onChainMs,
+      totalMs: performance.now() - totalStartedAt,
+    },
+    server: readServerPaymentTiming(finalResponse.headers),
+  });
 
   onProgress?.({ step: "done" });
   return {
     status: finalResponse.status,
     body,
     receipt,
+    timing,
     txHash,
     explorerUrl,
   };

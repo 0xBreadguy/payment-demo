@@ -4,16 +4,22 @@ import { useState } from "react";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { x402Client, x402HTTPClient, wrapFetchWithPayment } from "@x402/fetch";
 import { ExactEvmScheme } from "@x402/evm/exact/client";
+import { PaymentTimingMetrics } from "@/components/PaymentTimingMetrics";
 import { ProtectedImageResult } from "@/components/ProtectedImageResult";
 import { buildBrowserSigner } from "@/lib/x402-browser-signer";
 import { formatX402PaymentFailure, readX402PreviewResponse } from "@/lib/x402-preview";
+import {
+  mergePaymentTiming,
+  readServerPaymentTiming,
+  type PaymentTiming,
+} from "@/lib/payment-timing";
 
 const PROTECTED_PATH = "/api/protected";
 
 type State =
   | { kind: "idle" }
   | { kind: "loading"; step: string }
-  | { kind: "success"; data: unknown; settle: unknown }
+  | { kind: "success"; data: unknown; settle: unknown; timing: PaymentTiming }
   | { kind: "error"; message: string };
 
 export function X402Demo() {
@@ -45,13 +51,19 @@ export function X402Demo() {
     setUnauthorized(null);
     try {
       setState({ kind: "loading", step: "Signing payment authorization…" });
-      const signer = buildBrowserSigner(walletClient, publicClient, address);
+      let paidRequestStartedAt: number | undefined;
+      const signer = buildBrowserSigner(walletClient, publicClient, address, {
+        onSignedPayment: () => {
+          paidRequestStartedAt ??= performance.now();
+        },
+      });
       const client = new x402Client();
       client.register("eip155:*", new ExactEvmScheme(signer));
       const httpClient = new x402HTTPClient(client);
       const fetchWithPayment = wrapFetchWithPayment(fetch, httpClient);
 
       setState({ kind: "loading", step: "Submitting payment + fetching content…" });
+      const fallbackStartedAt = performance.now();
       const res = await fetchWithPayment(PROTECTED_PATH, { method: "GET" });
       if (!res.ok) {
         const preview = await readX402PreviewResponse(res);
@@ -60,7 +72,14 @@ export function X402Demo() {
 
       const data = await res.json();
       const settle = httpClient.getPaymentSettleResponse((n) => res.headers.get(n));
-      setState({ kind: "success", data, settle });
+      const timing = mergePaymentTiming({
+        client: {
+          chainSide: "unknown",
+          totalMs: performance.now() - (paidRequestStartedAt ?? fallbackStartedAt),
+        },
+        server: readServerPaymentTiming(res.headers),
+      });
+      setState({ kind: "success", data, settle, timing });
     } catch (e) {
       setState({ kind: "error", message: e instanceof Error ? e.message : "payment failed" });
     }
@@ -103,6 +122,7 @@ export function X402Demo() {
       {state.kind === "success" && (
         <div className="mt-4 space-y-3">
           <ProtectedImageResult data={state.data} layout="compact" />
+          <PaymentTimingMetrics timing={state.timing} />
           <div>
             <p className="text-xs uppercase tracking-wider text-emerald-400">Response</p>
             <pre className="mt-1 max-h-48 overflow-auto rounded-lg bg-black/40 p-3 font-mono text-[11px] text-white/80">

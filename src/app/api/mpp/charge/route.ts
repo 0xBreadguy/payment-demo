@@ -11,6 +11,10 @@ import {
   getMppReadiness,
   getMppSecretKey,
 } from "@/lib/mpp-config";
+import {
+  attachPaymentServerTiming,
+  collectPaymentServerTiming,
+} from "@/lib/payment-timing-server";
 
 type MppxHandler = ReturnType<typeof Mppx.create<readonly [ReturnType<typeof tempo.charge>]>>;
 
@@ -64,20 +68,25 @@ export async function GET(request: NextRequest): Promise<Response> {
 
   const realm = new URL(request.url).host;
   const mppx = getMppx(realm);
-  const result = await mppx.tempo.charge({})(request);
+  const { timing, value: result } = await collectPaymentServerTiming(() =>
+    mppx.tempo.charge({})(request),
+  );
 
   if (result.status === 402) {
     return result.challenge;
   }
 
-  return result.withReceipt(
-    NextResponse.json({
-      ok: true,
-      route: "mpp/charge",
-      secret: "🎉 You paid 1 USDm via MPP. Here is the protected content.",
-      when: new Date().toISOString(),
-      quote: "Payment is a protocol. Settle, verify, deliver.",
-      image: getRandomProtectedImage(),
-    }),
+  return attachPaymentServerTiming(
+    result.withReceipt(
+      NextResponse.json({
+        ok: true,
+        route: "mpp/charge",
+        secret: "🎉 You paid 1 USDm via MPP. Here is the protected content.",
+        when: new Date().toISOString(),
+        quote: "Payment is a protocol. Settle, verify, deliver.",
+        image: getRandomProtectedImage(),
+      }),
+    ),
+    timing,
   );
 }
