@@ -15,6 +15,10 @@ import {
 import { getResourceFacilitatorClient } from "@/lib/x402-resource-facilitator-client";
 import { getRandomProtectedImage } from "@/lib/protected-image";
 import { publicClient } from "@/lib/server-wallet";
+import {
+  attachPaymentServerTiming,
+  collectPaymentServerTiming,
+} from "@/lib/payment-timing-server";
 
 const x402TokenDomainAbi = parseAbi([
   "function eip712Domain() view returns (bytes1 fields, string name, string version, uint256 chainId, address verifyingContract, bytes32 salt, uint256[] extensions)",
@@ -127,5 +131,8 @@ async function getX402GetHandler() {
 
 export async function GET(request: NextRequest) {
   const getHandler = await getX402GetHandler();
-  return getHandler(request);
+  const { timing, value: response } = await collectPaymentServerTiming(() =>
+    getHandler(request),
+  );
+  return attachPaymentServerTiming(response, timing);
 }

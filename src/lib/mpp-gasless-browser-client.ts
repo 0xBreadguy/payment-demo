@@ -11,6 +11,11 @@ import {
   permit20Erc20Abi,
   signPermit20,
 } from "./mpp-permit20.ts";
+import {
+  mergePaymentTiming,
+  readServerPaymentTiming,
+  type PaymentTiming,
+} from "./payment-timing.ts";
 
 const MEGAETH_TESTNET_EXPLORER = "https://megaeth-testnet-v2.blockscout.com";
 
@@ -27,6 +32,7 @@ export type MppGaslessChargeSuccess = {
   status: number;
   body: unknown;
   receipt: Receipt.Receipt;
+  timing: PaymentTiming;
   txHash: `0x${string}`;
   explorerUrl: string;
 };
@@ -138,6 +144,7 @@ export async function payMppGaslessCharge(
   });
 
   onProgress?.({ step: "submitting" });
+  const totalStartedAt = performance.now();
   const finalResponse = await fetch(targetUrl, {
     headers: { Authorization: authorization },
   });
@@ -151,6 +158,13 @@ export async function payMppGaslessCharge(
   const body = bodyText ? JSON.parse(bodyText) : null;
   const receipt = Receipt.fromResponse(finalResponse);
   const txHash = receipt.reference as `0x${string}`;
+  const timing = mergePaymentTiming({
+    client: {
+      chainSide: "unknown",
+      totalMs: performance.now() - totalStartedAt,
+    },
+    server: readServerPaymentTiming(finalResponse.headers),
+  });
 
   onProgress?.({ step: "done" });
   return {
@@ -158,6 +172,7 @@ export async function payMppGaslessCharge(
     explorerUrl: megaethTxUrl(txHash),
     receipt,
     status: finalResponse.status,
+    timing,
     txHash,
   };
 }

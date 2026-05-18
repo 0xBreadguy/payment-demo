@@ -12,6 +12,7 @@ import { getFacilitator } from "./x402-facilitator";
 import { getFacilitatorAuthHeaders } from "./x402-facilitator-auth";
 import { getX402FacilitatorMode } from "./x402-facilitator-mode";
 import { getFacilitatorUrl } from "./x402-config";
+import { recordPaymentOnChainSegment } from "./payment-timing-server";
 
 class LocalX402FacilitatorClient implements FacilitatorClient {
   private get facilitator() {
@@ -37,7 +38,17 @@ class LocalX402FacilitatorClient implements FacilitatorClient {
     paymentPayload: PaymentPayload,
     paymentRequirements: PaymentRequirements,
   ): Promise<SettleResponse> {
-    return this.facilitator.settle(paymentPayload, paymentRequirements);
+    const startedAt = performance.now();
+    const result = await this.facilitator.settle(
+      paymentPayload,
+      paymentRequirements,
+    );
+    recordPaymentOnChainSegment({
+      durationMs: performance.now() - startedAt,
+      hash: result.transaction,
+      label: "x402 settle",
+    });
+    return result;
   }
 }
 
