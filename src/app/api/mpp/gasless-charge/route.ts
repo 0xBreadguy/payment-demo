@@ -28,6 +28,11 @@ import {
   recoverPermit20Signer,
   selectPermit20Domain,
 } from "@/lib/mpp-permit20";
+import {
+  attachPaymentServerTiming,
+  collectPaymentServerTiming,
+  recordPaymentOnChainSegment,
+} from "@/lib/payment-timing-server";
 
 type MppxHandler = ReturnType<typeof Mppx.create<readonly [ReturnType<typeof Method.toServer>]>>;
 
@@ -243,6 +248,7 @@ async function getMppx(realm: string): Promise<MppxHandler> {
           const { r, s } = parseSignature(signature);
           const v = getRecoveryId(signature);
 
+          const permitStartedAt = performance.now();
           const permitHash = await writeContract(serverWalletClient, {
             abi: permit20Erc20Abi,
             account: serverAccount,
@@ -253,7 +259,13 @@ async function getMppx(realm: string): Promise<MppxHandler> {
           await waitForTransactionReceipt(serverWalletClient, {
             hash: permitHash,
           });
+          recordPaymentOnChainSegment({
+            durationMs: performance.now() - permitStartedAt,
+            hash: permitHash,
+            label: "permit",
+          });
 
+          const transferStartedAt = performance.now();
           const transferHash = await writeContract(serverWalletClient, {
             abi: permit20Erc20Abi,
             account: serverAccount,
@@ -263,6 +275,11 @@ async function getMppx(realm: string): Promise<MppxHandler> {
           });
           await waitForTransactionReceipt(serverWalletClient, {
             hash: transferHash,
+          });
+          recordPaymentOnChainSegment({
+            durationMs: performance.now() - transferStartedAt,
+            hash: transferHash,
+            label: "transferFrom",
           });
 
           return Receipt.from({
@@ -295,20 +312,27 @@ export async function GET(request: NextRequest): Promise<Response> {
 
   const realm = new URL(request.url).host;
   const mppx = await getMppx(realm);
-  const result = await mppx["permit20/charge"]({})(request);
+  const { timing, value: result } = await collectPaymentServerTiming(() =>
+    mppx["permit20/charge"]({})(request),
+  );
 
   if (result.status === 402) {
     return result.challenge;
   }
 
-  return result.withReceipt(
-    NextResponse.json({
-      ok: true,
-      route: "mpp/gasless-charge",
-      secret: "You paid 1 USDm via gasless MPP. Here is the protected content.",
-      when: new Date().toISOString(),
-      quote: "Authorization stays with the payer; gas can be someone else's job.",
-      image: getRandomProtectedImage(),
-    }),
+  return attachPaymentServerTiming(
+    result.withReceipt(
+      NextResponse.json({
+        ok: true,
+        route: "mpp/gasless-charge",
+        secret:
+          "You paid 1 USDm via gasless MPP. Here is the protected content.",
+        when: new Date().toISOString(),
+        quote:
+          "Authorization stays with the payer; gas can be someone else's job.",
+        image: getRandomProtectedImage(),
+      }),
+    ),
+    timing,
   );
 }
