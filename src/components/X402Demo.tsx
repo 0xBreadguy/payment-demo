@@ -6,7 +6,7 @@ import { x402Client, x402HTTPClient, wrapFetchWithPayment } from "@x402/fetch";
 import { ExactEvmScheme } from "@x402/evm/exact/client";
 import { ProtectedImageResult } from "@/components/ProtectedImageResult";
 import { buildBrowserSigner } from "@/lib/x402-browser-signer";
-import { readX402PreviewResponse } from "@/lib/x402-preview";
+import { formatX402PaymentFailure, readX402PreviewResponse } from "@/lib/x402-preview";
 
 const PROTECTED_PATH = "/api/protected";
 
@@ -53,6 +53,11 @@ export function X402Demo() {
 
       setState({ kind: "loading", step: "Submitting payment + fetching content…" });
       const res = await fetchWithPayment(PROTECTED_PATH, { method: "GET" });
+      if (!res.ok) {
+        const preview = await readX402PreviewResponse(res);
+        throw new Error(formatX402PaymentFailure(preview));
+      }
+
       const data = await res.json();
       const settle = httpClient.getPaymentSettleResponse((n) => res.headers.get(n));
       setState({ kind: "success", data, settle });
