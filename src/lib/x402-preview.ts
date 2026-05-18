@@ -36,3 +36,26 @@ export async function readX402PreviewResponse(response: Response): Promise<X402P
     body,
   };
 }
+
+function formatBodyForError(body: unknown): string {
+  if (typeof body === "string") return body;
+  if (body === null || body === undefined) return "";
+
+  try {
+    return JSON.stringify(body);
+  } catch {
+    return String(body);
+  }
+}
+
+export function formatX402PaymentFailure(preview: X402PreviewResponse): string {
+  const protocolError = preview.paymentRequired?.error;
+  if (protocolError) {
+    return `x402 payment rejected (${preview.status}): ${protocolError}`;
+  }
+
+  const body = formatBodyForError(preview.body);
+  return body
+    ? `x402 payment rejected (${preview.status}): ${body}`
+    : `x402 payment rejected (${preview.status})`;
+}
