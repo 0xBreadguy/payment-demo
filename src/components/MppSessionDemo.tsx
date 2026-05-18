@@ -62,8 +62,8 @@ function stepLabel(step: MppSessionProgress["step"]): string {
       return "Requesting challenge…";
     case "ensuring-approval":
       return "Checking Permit2 allowance…";
-    case "approving-permit2":
-      return "Approving Permit2 (one-time)…";
+    case "signing-permit20-approval":
+      return "Signing gasless USDm approval…";
     case "signing-permit2":
       return "Signing Permit2 witness…";
     case "signing-voucher":
@@ -387,7 +387,8 @@ export function MppSessionDemo() {
       </h3>
       <p className="mt-1 text-sm text-white/50">
         Permit2 + off-chain vouchers. Server pays gas for open / top-up /
-        close. Deposit{" "}
+        close, and can sponsor the USDm permit when Permit2 allowance is
+        missing. Deposit{" "}
         {MPP_SESSION_DEPOSIT_AMOUNT_HUMAN} {USDM_SYMBOL} on first request, then
         sign a voucher per request. Close to settle on-chain and refund unused
         deposit.
