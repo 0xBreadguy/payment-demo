@@ -3,7 +3,7 @@ import test from "node:test";
 
 const moduleUrl = new URL("./usdm-permit2-approval.ts", import.meta.url).href;
 
-test("marks Permit2 approval complete when allowance covers one x402 payment", async () => {
+test("marks Permit2 approval complete when allowance covers x402 and MPP session usage", async () => {
   const {
     getPermit2ApprovalUiState,
     USDM_PERMIT2_PAYMENT_ALLOWANCE_THRESHOLD,
@@ -18,11 +18,12 @@ test("marks Permit2 approval complete when allowance covers one x402 payment", a
   assert.equal(state.isComplete, true);
   assert.equal(state.disabled, true);
   assert.equal(state.buttonLabel, "Permit2 allowance set");
-  assert.match(state.description, /optional/i);
+  assert.match(state.description, /optional but recommended/i);
+  assert.match(state.description, /MPP sessions/i);
   assert.match(state.description, /one fewer signature/i);
 });
 
-test("keeps optional Permit2 approval interactive before allowance is set", async () => {
+test("keeps recommended optional Permit2 approval interactive before allowance is set", async () => {
   const { getPermit2ApprovalUiState } =
     (await import(moduleUrl)) as typeof import("./usdm-permit2-approval");
 
@@ -34,8 +35,9 @@ test("keeps optional Permit2 approval interactive before allowance is set", asyn
 
   assert.equal(state.isComplete, false);
   assert.equal(state.disabled, false);
-  assert.equal(state.buttonLabel, "Approve Permit2 (optional)");
-  assert.match(state.description, /optional/i);
+  assert.equal(state.buttonLabel, "Approve Permit2 (optional but recommended)");
+  assert.match(state.description, /optional but recommended/i);
+  assert.match(state.description, /MPP sessions/i);
   assert.match(state.description, /one fewer signature/i);
 });
 

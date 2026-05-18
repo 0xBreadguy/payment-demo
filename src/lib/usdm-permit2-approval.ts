@@ -50,8 +50,8 @@ export function getPermit2ApprovalUiState(parameters: {
   const hasEnoughAllowance =
     allowance !== undefined && allowance >= USDM_PERMIT2_PAYMENT_ALLOWANCE_THRESHOLD;
   const description = hasEnoughAllowance
-    ? "Optional approval is already set. Future x402 payments can use one fewer signature interaction."
-    : "Optional: approve Permit2 on-chain now so future x402 payments can use one fewer signature interaction.";
+    ? "Optional but recommended approval is already set. Future x402 payments and MPP sessions can use one fewer signature interaction."
+    : "Optional but recommended: approve Permit2 on-chain now so future x402 payments and MPP sessions can use one fewer signature interaction.";
 
   if (!isConnected) {
     return {
@@ -89,12 +89,12 @@ export function getPermit2ApprovalUiState(parameters: {
       description,
       disabled: true,
       isComplete: true,
-      title: "Permit2 allowance is already set for x402 payments.",
+      title: "Permit2 allowance is already set for x402 payments and MPP sessions.",
     };
   }
 
   return {
-    buttonLabel: "Approve Permit2 (optional)",
+    buttonLabel: "Approve Permit2 (optional but recommended)",
     description,
     disabled: false,
     isComplete: false,
