@@ -15,8 +15,6 @@ import {
   getMegaethErc20Allowance,
   getMegaethErc20Balance,
   getMegaethSessionPaymentPlan,
-  maxUint256,
-  megaethErc20Abi,
   PERMIT2_ADDRESS,
   recoverPermit2OpenSigner,
   recoverPermit2TopUpSigner,
@@ -24,12 +22,22 @@ import {
   signPermit2OpenWitnessTransfer,
   signPermit2TopUpWitnessTransfer,
 } from "./megaeth-session";
+import {
+  buildMppSessionPermit20ApprovalPayload,
+  recoverMppSessionPermit20ApprovalSigner,
+  type MppSessionPermit20ApprovalPayload,
+} from "./mpp-session-permit20-approval";
+import {
+  permit20Erc20Abi,
+  selectPermit20Domain,
+  signPermit20,
+} from "./mpp-permit20";
 import { USDM_DECIMALS } from "./usdm";
 
 export type MppSessionProgressStep =
   | "requesting"
   | "ensuring-approval"
-  | "approving-permit2"
+  | "signing-permit20-approval"
   | "signing-permit2"
   | "signing-voucher"
   | "submitting"
@@ -96,6 +104,19 @@ export type MppSessionOptions = {
   onProgress?: (p: MppSessionProgress) => void;
 };
 
+const MPP_SESSION_PERMIT20_EXPLICIT_TOKEN_NAME =
+  process.env.NEXT_PUBLIC_MPP_SESSION_TOKEN_NAME ??
+  process.env.NEXT_PUBLIC_MPP_GASLESS_TOKEN_NAME;
+const MPP_SESSION_PERMIT20_EXPLICIT_TOKEN_VERSION =
+  process.env.NEXT_PUBLIC_MPP_SESSION_TOKEN_VERSION ??
+  process.env.NEXT_PUBLIC_MPP_GASLESS_TOKEN_VERSION;
+const MPP_SESSION_PERMIT20_TOKEN_NAME =
+  MPP_SESSION_PERMIT20_EXPLICIT_TOKEN_NAME ?? "USDm";
+const MPP_SESSION_PERMIT20_TOKEN_VERSION =
+  MPP_SESSION_PERMIT20_EXPLICIT_TOKEN_VERSION ??
+  process.env.NEXT_PUBLIC_X402_TOKEN_VERSION ??
+  "1";
+
 type SessionChallenge = Challenge.Challenge<
   {
     amount: string;
@@ -138,8 +159,55 @@ function buildSessionReceipt(raw: Record<string, unknown>): MppSessionReceipt {
   };
 }
 
-async function ensurePermit2Approval(
+async function readPermit20TokenDomain(
+  publicClient: PublicClient,
+  token: Address,
+) {
+  let tokenDomainName: string | undefined;
+  let tokenDomainVersion: string | undefined;
+
+  try {
+    const domain = await publicClient.readContract({
+      abi: permit20Erc20Abi,
+      address: token,
+      functionName: "eip712Domain",
+    });
+    const [, name, version] = domain as readonly [
+      Hex,
+      string,
+      string,
+      bigint,
+      Address,
+      Hex,
+      readonly bigint[],
+    ];
+    tokenDomainName = name;
+    tokenDomainVersion = version;
+  } catch {
+    try {
+      tokenDomainName = await publicClient.readContract({
+        abi: permit20Erc20Abi,
+        address: token,
+        functionName: "name",
+      });
+    } catch {
+      tokenDomainName = undefined;
+    }
+  }
+
+  return selectPermit20Domain({
+    explicitName: MPP_SESSION_PERMIT20_EXPLICIT_TOKEN_NAME,
+    explicitVersion: MPP_SESSION_PERMIT20_EXPLICIT_TOKEN_VERSION,
+    fallbackName: MPP_SESSION_PERMIT20_TOKEN_NAME,
+    fallbackVersion: MPP_SESSION_PERMIT20_TOKEN_VERSION,
+    tokenDomainName,
+    tokenDomainVersion,
+  });
+}
+
+async function preparePermit2AllowanceApproval(
   options: {
+    chainId: number;
     publicClient: PublicClient;
     walletClient: WalletClient;
     account: Address;
@@ -147,8 +215,9 @@ async function ensurePermit2Approval(
     requiredAmount: bigint;
     onProgress?: (p: MppSessionProgress) => void;
   },
-): Promise<`0x${string}` | undefined> {
+): Promise<MppSessionPermit20ApprovalPayload | undefined> {
   const {
+    chainId,
     publicClient,
     walletClient,
     account,
@@ -167,17 +236,52 @@ async function ensurePermit2Approval(
 
   if (allowance >= requiredAmount) return undefined;
 
-  onProgress?.({ step: "approving-permit2" });
-  const approveHash = await walletClient.writeContract({
-    abi: megaethErc20Abi,
+  const [{ tokenName, tokenVersion }, nonce] = await Promise.all([
+    readPermit20TokenDomain(publicClient, token),
+    publicClient.readContract({
+      abi: permit20Erc20Abi,
+      address: token,
+      args: [account],
+      functionName: "nonces",
+    }),
+  ]);
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + 600);
+
+  onProgress?.({ step: "signing-permit20-approval" });
+  const signature = await signPermit20({
     account,
-    address: token,
-    args: [PERMIT2_ADDRESS, maxUint256],
-    chain: megaethTestnet,
-    functionName: "approve",
+    chainId,
+    client: walletClient,
+    deadline,
+    nonce,
+    owner: account,
+    spender: PERMIT2_ADDRESS,
+    token,
+    tokenName,
+    tokenVersion,
+    value: requiredAmount,
   });
-  await publicClient.waitForTransactionReceipt({ hash: approveHash });
-  return approveHash;
+  const payload = buildMppSessionPermit20ApprovalPayload({
+    deadline,
+    nonce,
+    owner: account,
+    signature,
+    value: requiredAmount,
+  });
+  const recovered = await recoverMppSessionPermit20ApprovalSigner({
+    chainId,
+    payload,
+    token,
+    tokenName,
+    tokenVersion,
+  });
+  if (recovered.toLowerCase() !== account.toLowerCase()) {
+    throw new Error(
+      `USDm permit signature recovers to ${recovered}, expected ${account}. Wallet digest mismatch.`,
+    );
+  }
+
+  return payload;
 }
 
 export async function payMppSessionRequest(
@@ -253,7 +357,8 @@ export async function payMppSessionRequest(
       );
     }
 
-    await ensurePermit2Approval({
+    const permit20Approval = await preparePermit2AllowanceApproval({
+      chainId,
       publicClient,
       walletClient,
       account,
@@ -328,6 +433,7 @@ export async function payMppSessionRequest(
         permit2Deadline: permit2Deadline.toString(),
         permit2Nonce: permit2Nonce.toString(),
         permit2Signature,
+        ...(permit20Approval ? { permit20Approval } : {}),
         salt,
         signature,
         token: currency,
@@ -471,7 +577,8 @@ export async function topUpMppSession(
     );
   }
 
-  await ensurePermit2Approval({
+  const permit20Approval = await preparePermit2AllowanceApproval({
+    chainId,
     publicClient,
     walletClient,
     account,
@@ -517,6 +624,7 @@ export async function topUpMppSession(
       permit2Deadline: permit2Deadline.toString(),
       permit2Nonce: permit2Nonce.toString(),
       permit2Signature,
+      ...(permit20Approval ? { permit20Approval } : {}),
       type: "permit2",
     },
     source: createMegaethSessionSource(chainId, account),

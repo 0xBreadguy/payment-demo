@@ -2,8 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { Errors, Method, z } from "mppx";
 import { Mppx } from "mppx/server";
 import { Methods } from "mppx/tempo";
-import { type Address, type Hex } from "viem";
-import { waitForTransactionReceipt, writeContract } from "viem/actions";
+import { parseSignature, type Address, type Hex } from "viem";
+import { readContract, waitForTransactionReceipt, writeContract } from "viem/actions";
 
 import { megaethTestnet } from "@/lib/chain";
 import { publicClient, getServerWallet, serverAccount } from "@/lib/server-wallet";
@@ -14,6 +14,7 @@ import {
   getOnChainMegaethSessionChannel,
   megaethSessionEscrowAbi,
   hydrateMegaethSessionChannelState,
+  PERMIT2_ADDRESS,
   type MegaethSessionChannelState,
   recoverPermit2OpenSigner,
   recoverPermit2TopUpSigner,
@@ -23,14 +24,24 @@ import {
 import {
   MPP_SESSION_DEPOSIT_AMOUNT_HUMAN,
   MPP_SESSION_ESCROW_CONTRACT,
+  MPP_SESSION_EXPLICIT_TOKEN_NAME,
+  MPP_SESSION_EXPLICIT_TOKEN_VERSION,
   MPP_SESSION_REQUEST_AMOUNT_HUMAN,
   MPP_SESSION_TOKEN_ADDRESS,
   MPP_SESSION_TOKEN_DECIMALS,
+  MPP_SESSION_TOKEN_NAME,
+  MPP_SESSION_TOKEN_VERSION,
   getMppSecretKey,
   getMppSessionPayToAddress,
   getMppSessionReadiness,
 } from "@/lib/mpp-session-config";
+import {
+  getMppSessionPermit20ApprovalIssue,
+  recoverMppSessionPermit20ApprovalSigner,
+  type MppSessionPermit20ApprovalPayload,
+} from "@/lib/mpp-session-permit20-approval";
 import { getMppSessionStateStore } from "@/lib/mpp-session-store";
+import { permit20Erc20Abi, selectPermit20Domain } from "@/lib/mpp-permit20";
 
 // Relax credential payload to accept the Permit2 variants of open/topUp.
 const sessionMethodWithPermit2 = Method.from({
@@ -46,6 +57,203 @@ type MppxHandler = ReturnType<typeof Mppx.create<readonly [ReturnType<typeof Met
 
 let cached: MppxHandler | null = null;
 let cachedRealm: string | null = null;
+const cachedTokenDomains = new Map<
+  string,
+  { tokenName: string; tokenVersion: string }
+>();
+
+function normalizeAddress(value: Address) {
+  return value.toLowerCase();
+}
+
+function assertSameAddress(actual: Address, expected: Address, label: string) {
+  if (normalizeAddress(actual) !== normalizeAddress(expected)) {
+    throw new Errors.VerificationFailedError({
+      reason: `${label} ${actual} does not match expected ${expected}`,
+    });
+  }
+}
+
+function getRecoveryId(signature: Hex): number {
+  const parsed = parseSignature(signature);
+  const v =
+    "v" in parsed && parsed.v !== undefined
+      ? Number(parsed.v)
+      : parsed.yParity + 27;
+  if (v !== 27 && v !== 28) {
+    throw new Errors.VerificationFailedError({
+      reason: `unsupported permit20 signature v ${v}`,
+    });
+  }
+  return v;
+}
+
+async function readSessionTokenDomain(token: Address) {
+  try {
+    const domain = await readContract(publicClient, {
+      abi: permit20Erc20Abi,
+      address: token,
+      functionName: "eip712Domain",
+    });
+    const [, tokenDomainName, tokenDomainVersion] = domain as readonly [
+      Hex,
+      string,
+      string,
+      bigint,
+      Address,
+      Hex,
+      readonly bigint[],
+    ];
+    return { tokenDomainName, tokenDomainVersion };
+  } catch {
+    try {
+      const tokenDomainName = await readContract(publicClient, {
+        abi: permit20Erc20Abi,
+        address: token,
+        functionName: "name",
+      });
+      return { tokenDomainName, tokenDomainVersion: undefined };
+    } catch {
+      return { tokenDomainName: undefined, tokenDomainVersion: undefined };
+    }
+  }
+}
+
+async function getSessionTokenDomain(token: Address) {
+  const key = normalizeAddress(token);
+  const cachedDomain = cachedTokenDomains.get(key);
+  if (cachedDomain) return cachedDomain;
+
+  const { tokenDomainName, tokenDomainVersion } =
+    await readSessionTokenDomain(token);
+  const selected = selectPermit20Domain({
+    explicitName: MPP_SESSION_EXPLICIT_TOKEN_NAME,
+    explicitVersion: MPP_SESSION_EXPLICIT_TOKEN_VERSION,
+    fallbackName: MPP_SESSION_TOKEN_NAME,
+    fallbackVersion: MPP_SESSION_TOKEN_VERSION,
+    tokenDomainName,
+    tokenDomainVersion,
+  });
+  cachedTokenDomains.set(key, selected);
+  return selected;
+}
+
+async function readTokenAllowance(parameters: {
+  owner: Address;
+  token: Address;
+}) {
+  return readContract(publicClient, {
+    abi: permit20Erc20Abi,
+    address: parameters.token,
+    args: [parameters.owner, PERMIT2_ADDRESS],
+    functionName: "allowance",
+  });
+}
+
+async function readTokenBalance(parameters: {
+  owner: Address;
+  token: Address;
+}) {
+  return readContract(publicClient, {
+    abi: permit20Erc20Abi,
+    address: parameters.token,
+    args: [parameters.owner],
+    functionName: "balanceOf",
+  });
+}
+
+async function sponsorPermit20Approval(parameters: {
+  approval: MppSessionPermit20ApprovalPayload | undefined;
+  chainId: number;
+  owner: Address;
+  requiredValue: bigint;
+  serverWalletClient: NonNullable<ReturnType<typeof getServerWallet>>;
+  token: Address;
+}): Promise<Hex> {
+  const { approval, chainId, owner, requiredValue, serverWalletClient, token } =
+    parameters;
+  const issue = getMppSessionPermit20ApprovalIssue(approval, {
+    expectedOwner: owner,
+    nowSeconds: BigInt(Math.floor(Date.now() / 1000)),
+    requiredValue,
+  });
+  if (issue) {
+    throw new Errors.VerificationFailedError({ reason: issue });
+  }
+
+  const payload = approval!;
+  const tokenDomain = await getSessionTokenDomain(token);
+  const recovered = await recoverMppSessionPermit20ApprovalSigner({
+    chainId,
+    payload,
+    token,
+    tokenName: tokenDomain.tokenName,
+    tokenVersion: tokenDomain.tokenVersion,
+  });
+  assertSameAddress(recovered as Address, owner, "permit20 recovered signer");
+
+  const [currentNonce, balance] = await Promise.all([
+    readContract(publicClient, {
+      abi: permit20Erc20Abi,
+      address: token,
+      args: [owner],
+      functionName: "nonces",
+    }),
+    readTokenBalance({ owner, token }),
+  ]);
+
+  const payloadNonce = BigInt(payload.nonce);
+  if (currentNonce !== payloadNonce) {
+    throw new Errors.VerificationFailedError({
+      reason: `permit20 nonce ${payloadNonce} does not match current token nonce ${currentNonce}`,
+    });
+  }
+
+  if (balance < requiredValue) {
+    throw new Errors.VerificationFailedError({
+      reason: `owner USDm balance ${balance} is below required amount ${requiredValue}`,
+    });
+  }
+
+  const { r, s } = parseSignature(payload.signature);
+  const v = getRecoveryId(payload.signature);
+  const permitHash = await writeContract(serverWalletClient, {
+    abi: permit20Erc20Abi,
+    account: serverAccount!,
+    address: token,
+    args: [owner, PERMIT2_ADDRESS, requiredValue, BigInt(payload.deadline), v, r, s],
+    functionName: "permit",
+  });
+  await waitForTransactionReceipt(serverWalletClient, { hash: permitHash });
+  return permitHash;
+}
+
+async function ensureTokenAllowanceForPermit2(parameters: {
+  approval: MppSessionPermit20ApprovalPayload | undefined;
+  chainId: number;
+  owner: Address;
+  requiredValue: bigint;
+  serverWalletClient: NonNullable<ReturnType<typeof getServerWallet>>;
+  token: Address;
+}) {
+  const initialAllowance = await readTokenAllowance(parameters);
+  if (initialAllowance >= parameters.requiredValue) {
+    return {
+      allowance: initialAllowance,
+      permit20TxHash: undefined as Hex | undefined,
+    };
+  }
+
+  const permit20TxHash = await sponsorPermit20Approval(parameters);
+  const allowance = await readTokenAllowance(parameters);
+  if (allowance < parameters.requiredValue) {
+    throw new Errors.VerificationFailedError({
+      reason: `Permit2 allowance ${allowance} < required ${parameters.requiredValue} after permit20 approval`,
+    });
+  }
+
+  return { allowance, permit20TxHash };
+}
 
 function getMppx(realm: string): MppxHandler {
   if (cached && cachedRealm === realm) return cached;
@@ -175,38 +383,11 @@ function getMppx(realm: string): MppxHandler {
                 permit2Signature,
               ] as const;
 
-              // Pre-flight check: payer's allowance + balance for Permit2.
-              const allowance = (await publicClient.readContract({
-                abi: [
-                  {
-                    type: "function",
-                    name: "allowance",
-                    stateMutability: "view",
-                    inputs: [
-                      { name: "owner", type: "address" },
-                      { name: "spender", type: "address" },
-                    ],
-                    outputs: [{ type: "uint256" }],
-                  },
-                ] as const,
-                address: token,
-                args: [payer, "0x000000000022D473030F116dDEE9F6B43aC78BA3"],
-                functionName: "allowance",
-              })) as bigint;
-              const payerBalance = (await publicClient.readContract({
-                abi: [
-                  {
-                    type: "function",
-                    name: "balanceOf",
-                    stateMutability: "view",
-                    inputs: [{ name: "account", type: "address" }],
-                    outputs: [{ type: "uint256" }],
-                  },
-                ] as const,
-                address: token,
-                args: [payer],
-                functionName: "balanceOf",
-              })) as bigint;
+              // Pre-flight check: payer's balance and Permit2 allowance.
+              const payerBalance = await readTokenBalance({
+                owner: payer,
+                token,
+              });
               const serverRecoveredSigner = await recoverPermit2OpenSigner({
                 amount: deposit,
                 authorizedSigner,
@@ -227,16 +408,23 @@ function getMppx(realm: string): MppxHandler {
                 });
               }
 
-              if (allowance < deposit) {
-                throw new Errors.VerificationFailedError({
-                  reason: `Permit2 allowance ${allowance} < deposit ${deposit} on USDm from payer ${payer}`,
-                });
-              }
               if (payerBalance < deposit) {
                 throw new Errors.VerificationFailedError({
                   reason: `Payer USDm balance ${payerBalance} < deposit ${deposit}`,
                 });
               }
+
+              const { permit20TxHash } =
+                await ensureTokenAllowanceForPermit2({
+                  approval: p.permit20Approval as
+                    | MppSessionPermit20ApprovalPayload
+                    | undefined,
+                  chainId,
+                  owner: payer,
+                  requiredValue: deposit,
+                  serverWalletClient,
+                  token,
+                });
 
               const openHash = await writeContract(serverWalletClient, {
                 abi: megaethSessionEscrowAbi,
@@ -285,6 +473,7 @@ function getMppx(realm: string): MppxHandler {
                 spent: state.spent.toString(),
                 status: "success" as const,
                 timestamp: new Date().toISOString(),
+                ...(permit20TxHash ? { permit20TxHash } : {}),
                 txHash: openHash,
                 units: state.units,
               };
@@ -413,6 +602,28 @@ function getMppx(realm: string): MppxHandler {
                 });
               }
 
+              const payerBalance = await readTokenBalance({
+                owner: existing.payer,
+                token: existing.token,
+              });
+              if (payerBalance < additionalDeposit) {
+                throw new Errors.VerificationFailedError({
+                  reason: `Payer USDm balance ${payerBalance} < top-up amount ${additionalDeposit}`,
+                });
+              }
+
+              const { permit20TxHash } =
+                await ensureTokenAllowanceForPermit2({
+                  approval: p.permit20Approval as
+                    | MppSessionPermit20ApprovalPayload
+                    | undefined,
+                  chainId,
+                  owner: existing.payer,
+                  requiredValue: additionalDeposit,
+                  serverWalletClient,
+                  token: existing.token,
+                });
+
               const topUpHash = await writeContract(serverWalletClient, {
                 abi: megaethSessionEscrowAbi,
                 account: serverAccount,
@@ -469,6 +680,7 @@ function getMppx(realm: string): MppxHandler {
                 spent: nextState.spent.toString(),
                 status: "success" as const,
                 timestamp: new Date().toISOString(),
+                ...(permit20TxHash ? { permit20TxHash } : {}),
                 txHash: topUpHash,
                 units: nextState.units,
               };
