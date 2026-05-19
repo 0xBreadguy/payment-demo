@@ -13,6 +13,11 @@
 # testing
 /coverage
 
+# foundry
+/contract/cache/
+/contract/out/
+/contract/broadcast/
+
 # next.js
 /.next/
 /out/
