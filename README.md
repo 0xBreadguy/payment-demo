@@ -47,6 +47,10 @@ Open http://localhost:3000.
 - `GET /api/mpp/gasless-charge` — custom MPP `permit20.charge` protected endpoint; client signs EIP-2612 permit, server pays gas for `permit` + `transferFrom`
 - `GET|POST /api/mpp/session` — MPP `tempo.session` pay-as-you-go endpoint; open/voucher/top-up/close state is persisted in Redis when configured
 
+## Docs
+
+- [MPP session current scheme](docs/mpp-session-current-scheme.md) — official pay-as-you-go lifecycle, current EVM relayer flow, and escrow contract method diff.
+
 ## MPP session production state
 
 `/api/mpp/session` keeps the highest accepted voucher for each channel so close
