@@ -27,7 +27,6 @@ test("does not use x402 token name env as the gasless MPP token name fallback", 
     "0x2222222222222222222222222222222222222222";
   process.env[["NEXT_PUBLIC", "X402", "TOKEN", "NAME"].join("_")] =
     "Wrong X402 Name";
-  delete process.env.NEXT_PUBLIC_MPP_GASLESS_TOKEN_NAME;
 
   const { MPP_GASLESS_TOKEN_NAME } =
     (await import(configModuleUrl("x402-name-fallback"))) as typeof import("./mpp-gasless-config");

@@ -32,7 +32,6 @@ Open http://localhost:3000.
 | `MPP_SECRET_KEY` | server | HMAC secret for mppx 402 challenges (required for `/api/mpp/charge` and `/api/mpp/gasless-charge`) |
 | `MPP_CHARGE_AMOUNT` | server | Human-readable USDm amount (default `1`) |
 | `MPP_GASLESS_CHARGE_AMOUNT` | server | Human-readable USDm amount for the gasless MPP charge (defaults to `MPP_CHARGE_AMOUNT`, then `1`) |
-| `NEXT_PUBLIC_MPP_GASLESS_TOKEN_NAME` | client + server | Optional EIP-2612 token domain name override for permit20 signing; by default the route reads `eip712Domain()` / `name()` from the token |
 | `NEXT_PUBLIC_MPP_GASLESS_TOKEN_VERSION` | client + server | Optional EIP-2612 token domain version override for permit20 signing; by default the route reads `eip712Domain()` from the token, then falls back to `NEXT_PUBLIC_X402_TOKEN_VERSION` / `1` |
 | `NEXT_PUBLIC_MPP_SESSION_ESCROW` | client + server | Deployed TempoStreamChannelEvm escrow used by `/api/mpp/session` |
 | `MPP_SESSION_STATE_REDIS_REST_URL` | server | Upstash/Vercel Redis REST URL for durable MPP session channel state; use `UPSTASH_REDIS_REST_URL` or `KV_REST_API_URL` as alternatives |

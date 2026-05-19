@@ -9,7 +9,6 @@ import { publicClient, getServerWallet, serverAccount } from "@/lib/server-walle
 import { getRandomProtectedImage } from "@/lib/protected-image";
 import {
   MPP_GASLESS_CHARGE_AMOUNT_HUMAN,
-  MPP_GASLESS_EXPLICIT_TOKEN_NAME,
   MPP_GASLESS_EXPLICIT_TOKEN_VERSION,
   MPP_GASLESS_TOKEN_ADDRESS,
   MPP_GASLESS_TOKEN_DECIMALS,
@@ -106,7 +105,6 @@ async function getTokenDomainDefaults() {
 
   const { tokenDomainName, tokenDomainVersion } = await readTokenDomain();
   cachedDomain = selectPermit20Domain({
-    explicitName: MPP_GASLESS_EXPLICIT_TOKEN_NAME,
     explicitVersion: MPP_GASLESS_EXPLICIT_TOKEN_VERSION,
     fallbackName: MPP_GASLESS_TOKEN_NAME,
     fallbackVersion: MPP_GASLESS_TOKEN_VERSION,
