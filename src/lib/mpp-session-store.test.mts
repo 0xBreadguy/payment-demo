@@ -38,6 +38,22 @@ test("serializes MPP session channel state without losing bigint values", async 
   assert.deepEqual(deserializeMppSessionChannelState(serialized), channelState);
 });
 
+test("inserts MPP session channel state only when absent in memory", async () => {
+  const { createMemoryMppSessionStore } =
+    (await import(storeModuleUrl)) as typeof import("./mpp-session-store");
+  const store = createMemoryMppSessionStore();
+  const competingState = {
+    ...channelState,
+    highestVoucherAmount: BigInt(9),
+    spent: BigInt(9),
+    units: 9,
+  };
+
+  assert.equal(await store.putChannelIfAbsent(channelId, channelState), true);
+  assert.equal(await store.putChannelIfAbsent(channelId, competingState), false);
+  assert.deepEqual(await store.getChannel(channelId), channelState);
+});
+
 test("stores MPP session channel state through Upstash Redis REST", async () => {
   const { createUpstashMppSessionStore } =
     (await import(storeModuleUrl)) as typeof import("./mpp-session-store");
@@ -53,8 +69,11 @@ test("stores MPP session channel state through Upstash Redis REST", async () => 
       "Bearer redis-token",
     );
 
-    const [name, key, value] = command;
+    const [name, key, value, option] = command;
     if (name === "SET" && typeof key === "string" && typeof value === "string") {
+      if (option === "NX" && values.has(key)) {
+        return Response.json({ result: null });
+      }
       values.set(key, value);
       return Response.json({ result: "OK" });
     }
@@ -84,6 +103,19 @@ test("stores MPP session channel state through Upstash Redis REST", async () => 
   ]);
 
   assert.deepEqual(await store.getChannel(channelId), channelState);
+
+  const competingState = {
+    ...channelState,
+    highestVoucherAmount: BigInt(9),
+    spent: BigInt(9),
+    units: 9,
+  };
+  assert.equal(await store.putChannelIfAbsent(channelId, competingState), false);
+  assert.deepEqual(await store.getChannel(channelId), channelState);
+
+  await store.deleteChannel(channelId);
+  assert.equal(await store.putChannelIfAbsent(channelId, competingState), true);
+  assert.deepEqual(await store.getChannel(channelId), competingState);
 
   await store.deleteChannel(channelId);
   assert.equal(await store.getChannel(channelId), null);

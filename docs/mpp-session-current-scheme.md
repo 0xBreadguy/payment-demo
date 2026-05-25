@@ -1,6 +1,6 @@
 # MPP Session Current Scheme
 
-Date: 2026-05-19
+Date: 2026-05-25
 
 ## Goal
 
@@ -52,7 +52,41 @@ Key points:
 
 ## Current MegaETH / EVM Version
 
-The current demo keeps the official session abstraction, but moves on-chain lifecycle transactions to a server relayer:
+The demo now exposes both MegaETH variants:
+
+- `/api/mpp/session` is the official-style session route. The browser wallet
+  submits `open` and `topUp` on-chain, then sends MPP credentials and vouchers
+  to the server. The server verifies channel state, stores accepted cumulative
+  vouchers, serves paid requests, and calls `close` as the payee.
+- `/api/mpp/session-gasless` is the modified relayer route. It keeps the same
+  MPP session abstraction, but uses Permit2 so the server submits and sponsors
+  `openWithPermit2`, `topUpWithPermit2`, and `close`.
+
+Both variants reuse the same MegaETH USDm token, escrow contract, request
+amount, deposit amount, HMAC challenge secret, and session state store.
+
+### Official-Style MegaETH Flow
+
+| Phase | Current implementation |
+| --- | --- |
+| Open | Client checks USDm allowance, submits `approve` if needed, calls escrow `open`, signs the first cumulative voucher, and sends an open credential. |
+| Voucher | Client signs an incremented cumulative voucher; server verifies store and on-chain channel state, then updates the highest voucher. |
+| Top-up | Explicit UI action; client approves if needed, calls escrow `topUp`, then sends a top-up credential. |
+| Settle | Supported by the contract, but not wired into the route as a standalone action. |
+| Close | Client signs the highest cumulative voucher; server requires it to match stored highest value, then calls `close` as the payee. |
+| Escape | Contract keeps `requestClose` / `withdraw`, but current UI/API does not expose them. |
+
+Relevant files:
+
+- `src/app/api/mpp/session/route.ts`
+- `src/components/MppOfficialSessionDemo.tsx`
+- `src/lib/mpp-official-session-browser-client.ts`
+- `src/lib/megaeth-session.ts`
+- `src/lib/mpp-session-store.ts`
+
+### Gasless MegaETH / EVM Version
+
+The gasless demo keeps the official session abstraction, but moves on-chain lifecycle transactions to a server relayer:
 
 - The client signs only; it does not directly submit `open`, `top-up`, or `close` transactions.
 - The server verifies MPP credentials and pays gas for escrow transactions.
@@ -61,14 +95,15 @@ The current demo keeps the official session abstraction, but moves on-chain life
 
 Relevant files:
 
-- `src/app/api/mpp/session/route.ts`
+- `src/app/api/mpp/session-gasless/route.ts`
+- `src/components/MppSessionGaslessDemo.tsx`
 - `src/lib/mpp-session-browser-client.ts`
 - `src/lib/megaeth-session.ts`
 - `src/lib/mpp-session-store.ts`
 - `contract/src/TempoStreamChannel.sol`
 - `contract/src/TempoStreamChannelEvm.sol`
 
-### Current Flow
+### Gasless Flow
 
 | Phase | Current implementation |
 | --- | --- |
@@ -79,14 +114,15 @@ Relevant files:
 | Close | Client signs the highest cumulative voucher; server requires it to match stored highest value, then calls `close`. |
 | Escape | Contract keeps `requestClose` / `withdraw`, but current UI/API does not expose them. |
 
-Main differences from the official default model:
+Main differences from the official-style route:
 
-| Area | Official default model | Current EVM demo |
+| Area | Official-style route | Gasless EVM route |
 | --- | --- | --- |
-| `open` / `top-up` / `close` transaction sender | Usually client. | Server relayer. |
-| Client interaction | Wallet transaction plus voucher signing. | Permit / Permit2 / voucher signing only. |
-| Funding | Tempo TIP-20 deposit. | ERC-20 plus Permit2 witness; EIP-3009 is also available in the contract. |
-| Voucher hot path | Intended to be CPU-only signature verification. | Also reads store and on-chain channel for conservative validation. |
+| `open` / `top-up` transaction sender | Client wallet. | Server relayer. |
+| `close` transaction sender | Server payee signer. | Server payee signer. |
+| Client interaction | ERC-20 approval, wallet transaction, and voucher signing. | Permit / Permit2 / voucher signing only. |
+| Funding | ERC-20 approval plus direct escrow deposit. | ERC-20 plus Permit2 witness; EIP-3009 is also available in the contract. |
+| Voucher hot path | Reads store and on-chain channel for conservative validation. | Reads store and on-chain channel for conservative validation. |
 | `settle` | Server may settle periodically. | Not implemented yet; final settlement happens during `close`. |
 
 ## Contract Diff Overview
@@ -95,10 +131,10 @@ Main differences from the official default model:
 
 | Method | Base `TempoStreamChannel` | EVM version changes | Current route usage |
 | --- | --- | --- | --- |
-| `open` | `payer = msg.sender`; pulls deposit with `transferFrom`. | Keeps legacy `open`. Adds `openWithPermit2` and `openWithReceiveAuthorization`; explicit `payer` allows relayers. | Uses `openWithPermit2`. |
-| `topUp` | Only payer can call; increases deposit and cancels pending close. | Keeps legacy `topUp`. Adds `topUpWithPermit2` and `topUpWithReceiveAuthorization`. | Uses `topUpWithPermit2`. |
+| `open` | `payer = msg.sender`; pulls deposit with `transferFrom`. | Keeps legacy `open`. Adds `openWithPermit2` and `openWithReceiveAuthorization`; explicit `payer` allows relayers. | Official route uses `open`; gasless route uses `openWithPermit2`. |
+| `topUp` | Only payer can call; increases deposit and cancels pending close. | Keeps legacy `topUp`. Adds `topUpWithPermit2` and `topUpWithReceiveAuthorization`. | Official route uses `topUp`; gasless route uses `topUpWithPermit2`. |
 | `settle` | Payee withdraws `cumulative - settled` using an increasing voucher. | Same semantics. | Not wired yet. |
-| `close` | Payee closes with final voucher; payee gets delta, payer gets refund. | Same semantics. | Server relayer calls it; amount must match stored highest voucher. |
+| `close` | Payee closes with final voucher; payee gets delta, payer gets refund. | Same semantics. | Server payee signer calls it; amount must match stored highest voucher. |
 | `requestClose` / `withdraw` | Payer-side grace-period exit path. | Same semantics. | Not exposed in UI/API; contract-level fallback only. |
 
 Key safety bindings in the EVM version:

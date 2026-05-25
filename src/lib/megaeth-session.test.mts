@@ -48,6 +48,32 @@ test("MegaETH session escrow ABI exposes Permit2 topUp relayer entrypoint", () =
   assert.equal(topUpWithPermit2.stateMutability, "nonpayable");
 });
 
+test("MegaETH session escrow ABI exposes official open and topUp entrypoints", () => {
+  const open = megaethSessionEscrowAbi.find(
+    (item) => item.type === "function" && item.name === "open",
+  );
+  const topUp = megaethSessionEscrowAbi.find(
+    (item) => item.type === "function" && item.name === "topUp",
+  );
+
+  assert.ok(
+    open,
+    "expected open(address,address,uint128,bytes32,address) in escrow ABI",
+  );
+  assert.deepEqual(
+    open.inputs.map((input) => input.type),
+    ["address", "address", "uint128", "bytes32", "address"],
+  );
+  assert.equal(open.stateMutability, "nonpayable");
+
+  assert.ok(topUp, "expected topUp(bytes32,uint256) in escrow ABI");
+  assert.deepEqual(
+    topUp.inputs.map((input) => input.type),
+    ["bytes32", "uint256"],
+  );
+  assert.equal(topUp.stateMutability, "nonpayable");
+});
+
 test("Permit2 top-up typed data matches fixed contract witness type order", () => {
   const typedData = buildPermit2TopUpTypedData({
     amount: BigInt(1),
