@@ -50,6 +50,8 @@ Open http://localhost:3000.
 
 ## Docs
 
+- [x402 current scheme](docs/x402-current-scheme.md) — x402 exact payment flow, Permit2 transfer method, and EIP-2612 gas sponsorship.
+- [MPP charge current scheme](docs/mpp-charge-current-scheme.md) — one-time charge flow, push mode, and gasless pull mode.
 - [MPP session current scheme](docs/mpp-session-current-scheme.md) — official-style pay-as-you-go lifecycle, gasless EVM relayer flow, and escrow contract method diff.
 
 ## MPP session production state
