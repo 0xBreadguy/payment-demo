@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isHex } from "viem";
+import { sendRawTransactionRealtime } from "@/lib/megaeth-realtime";
 import { publicClient, getServerWallet } from "@/lib/server-wallet";
 
 type Body = { rawTx?: string };
@@ -25,8 +26,10 @@ export async function POST(request: Request) {
   }
 
   try {
-    const hash = await publicClient.sendRawTransaction({ serializedTransaction: body.rawTx });
-    return NextResponse.json({ ok: true, hash });
+    const receipt = await sendRawTransactionRealtime(publicClient, {
+      serializedTransaction: body.rawTx,
+    });
+    return NextResponse.json({ ok: true, hash: receipt.transactionHash });
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "broadcast failed" },

@@ -3,9 +3,10 @@ import { Errors, Method, z } from "mppx";
 import { Mppx } from "mppx/server";
 import { Methods } from "mppx/tempo";
 import { parseSignature, type Address, type Hex } from "viem";
-import { readContract, waitForTransactionReceipt, writeContract } from "viem/actions";
+import { readContract } from "viem/actions";
 
 import { megaethTestnet } from "@/lib/chain";
+import { writeContractRealtime } from "@/lib/megaeth-realtime";
 import { publicClient, getServerWallet, serverAccount } from "@/lib/server-wallet";
 import { getRandomProtectedImage } from "@/lib/protected-image";
 import {
@@ -228,14 +229,14 @@ async function sponsorPermit20Approval(parameters: {
   const { r, s } = parseSignature(payload.signature);
   const v = getRecoveryId(payload.signature);
   const permit20StartedAt = performance.now();
-  const permitHash = await writeContract(serverWalletClient, {
+  const permitReceipt = await writeContractRealtime(serverWalletClient, {
     abi: permit20Erc20Abi,
     account: serverAccount!,
     address: token,
     args: [owner, PERMIT2_ADDRESS, requiredValue, BigInt(payload.deadline), v, r, s],
     functionName: "permit",
   });
-  await waitForTransactionReceipt(serverWalletClient, { hash: permitHash });
+  const permitHash = permitReceipt.transactionHash;
   recordPaymentOnChainSegment({
     durationMs: performance.now() - permit20StartedAt,
     hash: permitHash,
@@ -443,17 +444,14 @@ function getMppx(realm: string): MppxHandler {
                 });
 
               const openStartedAt = performance.now();
-              const openHash = await writeContract(serverWalletClient, {
+              const openReceipt = await writeContractRealtime(serverWalletClient, {
                 abi: megaethSessionEscrowAbi,
                 account: serverAccount,
                 address: escrowContract,
                 args: openArgs,
                 functionName: "openWithPermit2",
               });
-
-              await waitForTransactionReceipt(serverWalletClient, {
-                hash: openHash,
-              });
+              const openHash = openReceipt.transactionHash;
               recordPaymentOnChainSegment({
                 durationMs: performance.now() - openStartedAt,
                 hash: openHash,
@@ -647,7 +645,7 @@ function getMppx(realm: string): MppxHandler {
                 });
 
               const topUpStartedAt = performance.now();
-              const topUpHash = await writeContract(serverWalletClient, {
+              const topUpReceipt = await writeContractRealtime(serverWalletClient, {
                 abi: megaethSessionEscrowAbi,
                 account: serverAccount,
                 address: escrowContract,
@@ -660,10 +658,7 @@ function getMppx(realm: string): MppxHandler {
                 ],
                 functionName: "topUpWithPermit2",
               });
-
-              await waitForTransactionReceipt(serverWalletClient, {
-                hash: topUpHash,
-              });
+              const topUpHash = topUpReceipt.transactionHash;
               recordPaymentOnChainSegment({
                 durationMs: performance.now() - topUpStartedAt,
                 hash: topUpHash,
@@ -763,17 +758,14 @@ function getMppx(realm: string): MppxHandler {
               }
 
               const closeStartedAt = performance.now();
-              const closeHash = await writeContract(serverWalletClient, {
+              const closeReceipt = await writeContractRealtime(serverWalletClient, {
                 abi: megaethSessionEscrowAbi,
                 account: serverAccount,
                 address: escrowContract,
                 args: [channelId, cumulativeAmount, p.signature as Hex],
                 functionName: "close",
               });
-
-              await waitForTransactionReceipt(serverWalletClient, {
-                hash: closeHash,
-              });
+              const closeHash = closeReceipt.transactionHash;
               recordPaymentOnChainSegment({
                 durationMs: performance.now() - closeStartedAt,
                 hash: closeHash,
