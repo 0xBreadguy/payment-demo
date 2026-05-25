@@ -2,9 +2,10 @@ import { NextResponse, type NextRequest } from "next/server";
 import { Errors, Method, Receipt } from "mppx";
 import { Mppx } from "mppx/server";
 import { parseSignature, type Address, type Hex } from "viem";
-import { readContract, waitForTransactionReceipt, writeContract } from "viem/actions";
+import { readContract } from "viem/actions";
 
 import { megaethTestnet } from "@/lib/chain";
+import { writeContractRealtime } from "@/lib/megaeth-realtime";
 import { publicClient, getServerWallet, serverAccount } from "@/lib/server-wallet";
 import { getRandomProtectedImage } from "@/lib/protected-image";
 import {
@@ -247,16 +248,14 @@ async function getMppx(realm: string): Promise<MppxHandler> {
           const v = getRecoveryId(signature);
 
           const permitStartedAt = performance.now();
-          const permitHash = await writeContract(serverWalletClient, {
+          const permitReceipt = await writeContractRealtime(serverWalletClient, {
             abi: permit20Erc20Abi,
             account: serverAccount,
             address: currency,
             args: [owner, spender, amount, payloadDeadline, v, r, s],
             functionName: "permit",
           });
-          await waitForTransactionReceipt(serverWalletClient, {
-            hash: permitHash,
-          });
+          const permitHash = permitReceipt.transactionHash;
           recordPaymentOnChainSegment({
             durationMs: performance.now() - permitStartedAt,
             hash: permitHash,
@@ -264,16 +263,14 @@ async function getMppx(realm: string): Promise<MppxHandler> {
           });
 
           const transferStartedAt = performance.now();
-          const transferHash = await writeContract(serverWalletClient, {
+          const transferReceipt = await writeContractRealtime(serverWalletClient, {
             abi: permit20Erc20Abi,
             account: serverAccount,
             address: currency,
             args: [owner, recipient, amount],
             functionName: "transferFrom",
           });
-          await waitForTransactionReceipt(serverWalletClient, {
-            hash: transferHash,
-          });
+          const transferHash = transferReceipt.transactionHash;
           recordPaymentOnChainSegment({
             durationMs: performance.now() - transferStartedAt,
             hash: transferHash,

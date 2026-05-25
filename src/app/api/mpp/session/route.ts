@@ -3,9 +3,9 @@ import { Credential, Errors, Method, z } from "mppx";
 import { Mppx } from "mppx/server";
 import { Methods } from "mppx/tempo";
 import { type Address, type Hex, zeroAddress } from "viem";
-import { waitForTransactionReceipt, writeContract } from "viem/actions";
 
 import { megaethTestnet } from "@/lib/chain";
+import { writeContractRealtime } from "@/lib/megaeth-realtime";
 import {
   getMegaethSessionAuthorizedSigner,
   getOnChainMegaethSessionChannel,
@@ -500,17 +500,14 @@ function getMppx(realm: string): MppxHandler {
               }
 
               const closeStartedAt = performance.now();
-              const closeHash = await writeContract(serverWalletClient, {
+              const closeReceipt = await writeContractRealtime(serverWalletClient, {
                 abi: megaethSessionEscrowAbi,
                 account: serverAccount,
                 address: escrowContract,
                 args: [channelId, cumulativeAmount, signature],
                 functionName: "close",
               });
-
-              await waitForTransactionReceipt(serverWalletClient, {
-                hash: closeHash,
-              });
+              const closeHash = closeReceipt.transactionHash;
               recordPaymentOnChainSegment({
                 durationMs: performance.now() - closeStartedAt,
                 hash: closeHash,

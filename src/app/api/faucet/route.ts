@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { isAddress } from "viem";
+import { writeContractRealtime } from "@/lib/megaeth-realtime";
 import { publicClient, getServerWallet } from "@/lib/server-wallet";
 import { FAUCET_AMOUNT, USDM_ADDRESS, usdmAbi } from "@/lib/usdm";
 
@@ -37,8 +38,12 @@ export async function POST(request: Request) {
       functionName: "mint",
       args: [to, FAUCET_AMOUNT],
     });
-    const hash = await wallet.writeContract(simulated);
-    return NextResponse.json({ ok: true, hash, amount: FAUCET_AMOUNT.toString() });
+    const receipt = await writeContractRealtime(wallet, simulated);
+    return NextResponse.json({
+      ok: true,
+      hash: receipt.transactionHash,
+      amount: FAUCET_AMOUNT.toString(),
+    });
   } catch (error) {
     return NextResponse.json(
       { ok: false, error: error instanceof Error ? error.message : "mint failed" },

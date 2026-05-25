@@ -5,6 +5,10 @@ import { toFacilitatorEvmSigner } from "@x402/evm";
 import { createWalletClient, http, publicActions } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { megaethTestnet } from "./chain";
+import {
+  sendTransactionRealtime,
+  writeContractRealtime,
+} from "./megaeth-realtime";
 import { X402_NETWORK } from "./x402-config";
 
 let cached: x402Facilitator | null = null;
@@ -22,6 +26,17 @@ export function getFacilitator(): x402Facilitator | null {
     chain: megaethTestnet,
     transport: http(rpcUrl),
   }).extend(publicActions);
+  const realtimeReceipts = new Map<
+    `0x${string}`,
+    Awaited<ReturnType<typeof viemClient.waitForTransactionReceipt>>
+  >();
+
+  function rememberRealtimeReceipt(
+    receipt: Awaited<ReturnType<typeof viemClient.waitForTransactionReceipt>>,
+  ) {
+    realtimeReceipts.set(receipt.transactionHash, receipt);
+    return receipt.transactionHash;
+  }
 
   const evmSigner = toFacilitatorEvmSigner({
     address: account.address,
@@ -32,13 +47,28 @@ export function getFacilitator(): x402Facilitator | null {
       >[0]),
     verifyTypedData: (args) =>
       viemClient.verifyTypedData(args as Parameters<typeof viemClient.verifyTypedData>[0]),
-    writeContract: (args) =>
-      viemClient.writeContract({ ...args, args: args.args ?? [] } as Parameters<
-        typeof viemClient.writeContract
-      >[0]),
-    sendTransaction: (args) =>
-      viemClient.sendTransaction(args as Parameters<typeof viemClient.sendTransaction>[0]),
-    waitForTransactionReceipt: (args) => viemClient.waitForTransactionReceipt(args),
+    writeContract: async (args) =>
+      rememberRealtimeReceipt(
+        await writeContractRealtime(viemClient, {
+          ...args,
+          args: args.args ?? [],
+        } as Parameters<typeof viemClient.writeContract>[0]),
+      ),
+    sendTransaction: async (args) =>
+      rememberRealtimeReceipt(
+        await sendTransactionRealtime(
+          viemClient,
+          args as Parameters<typeof viemClient.sendTransaction>[0],
+        ),
+      ),
+    waitForTransactionReceipt: (args) => {
+      const receipt = realtimeReceipts.get(args.hash);
+      if (receipt) {
+        realtimeReceipts.delete(args.hash);
+        return Promise.resolve(receipt);
+      }
+      return viemClient.waitForTransactionReceipt(args);
+    },
   });
 
   cached = new x402Facilitator();
