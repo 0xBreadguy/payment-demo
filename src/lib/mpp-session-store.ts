@@ -27,6 +27,10 @@ export type MppSessionStateStore = {
     channelId: Hex,
     state: MegaethSessionChannelState,
   ): Promise<void>;
+  putChannelIfAbsent(
+    channelId: Hex,
+    state: MegaethSessionChannelState,
+  ): Promise<boolean>;
 };
 
 export type UpstashMppSessionStoreOptions = {
@@ -81,6 +85,11 @@ export function createMemoryMppSessionStore(): MppSessionStateStore {
     },
     async putChannel(channelId, state) {
       channels.set(channelId, serializeMppSessionChannelState(state));
+    },
+    async putChannelIfAbsent(channelId, state) {
+      if (channels.has(channelId)) return false;
+      channels.set(channelId, serializeMppSessionChannelState(state));
+      return true;
     },
   };
 }
@@ -139,6 +148,15 @@ export function createUpstashMppSessionStore(
         key(channelId),
         JSON.stringify(serializeMppSessionChannelState(state)),
       ]);
+    },
+    async putChannelIfAbsent(channelId, state) {
+      const result = await command<string | null>([
+        "SET",
+        key(channelId),
+        JSON.stringify(serializeMppSessionChannelState(state)),
+        "NX",
+      ]);
+      return result === "OK";
     },
   };
 }

@@ -26,6 +26,8 @@ export const megaethErc20Abi = parseAbi([
 
 export const megaethSessionEscrowAbi = parseAbi([
   "function getChannel(bytes32 channelId) view returns ((bool finalized, uint64 closeRequestedAt, address payer, address payee, address token, address authorizedSigner, uint128 deposit, uint128 settled))",
+  "function open(address payee, address token, uint128 deposit, bytes32 salt, address authorizedSigner) returns (bytes32 channelId)",
+  "function topUp(bytes32 channelId, uint256 additionalDeposit)",
   "function openWithPermit2(address payer, address payee, address token, uint128 deposit, bytes32 salt, address authorizedSigner, uint256 nonce, uint256 deadline, bytes permit2Signature) returns (bytes32 channelId)",
   "function close(bytes32 channelId, uint128 cumulativeAmount, bytes signature)",
   "function topUpWithPermit2(bytes32 channelId, uint256 additionalDeposit, uint256 nonce, uint256 deadline, bytes permit2Signature)",

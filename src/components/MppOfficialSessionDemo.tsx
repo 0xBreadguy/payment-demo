@@ -17,15 +17,15 @@ import {
   getMppSessionRemainingAmount,
 } from "@/lib/mpp-session-feed";
 import {
-  closeMppSession,
-  payMppSessionRequest,
-  topUpMppSession,
-  type MppSessionCloseResult,
-  type MppSessionLocalState,
-  type MppSessionProgress,
-  type MppSessionRequestResult,
-  type MppSessionTopUpResult,
-} from "@/lib/mpp-session-browser-client";
+  closeMppOfficialSession,
+  payMppOfficialSessionRequest,
+  topUpMppOfficialSession,
+  type MppOfficialSessionCloseResult,
+  type MppOfficialSessionLocalState,
+  type MppOfficialSessionProgress,
+  type MppOfficialSessionRequestResult,
+  type MppOfficialSessionTopUpResult,
+} from "@/lib/mpp-official-session-browser-client";
 import { USDM_DECIMALS, USDM_SYMBOL } from "@/lib/usdm";
 
 type Phase =
@@ -33,58 +33,60 @@ type Phase =
   | { kind: "loading"; step: string }
   | { kind: "error"; message: string };
 
-type MppSessionEvent =
+type MppOfficialSessionEvent =
   | {
       kind: "request";
       requestNumber: number;
-      result: MppSessionRequestResult;
+      result: MppOfficialSessionRequestResult;
       sequence: number;
     }
   | {
       kind: "top-up";
-      result: MppSessionTopUpResult;
+      result: MppOfficialSessionTopUpResult;
       sequence: number;
       topUpNumber: number;
     }
   | {
       kind: "close";
-      result: MppSessionCloseResult;
+      result: MppOfficialSessionCloseResult;
       sequence: number;
     };
 
-const initialState: MppSessionLocalState = {
+const initialState: MppOfficialSessionLocalState = {
   opened: false,
   units: 0,
 };
 
-function stepLabel(step: MppSessionProgress["step"]): string {
+function stepLabel(step: MppOfficialSessionProgress["step"]): string {
   switch (step) {
     case "requesting":
-      return "Requesting challenge…";
-    case "ensuring-approval":
-      return "Checking Permit2 allowance…";
-    case "signing-permit20-approval":
-      return "Signing gasless USDm approval…";
-    case "signing-permit2":
-      return "Signing Permit2 witness…";
+      return "Requesting challenge...";
+    case "checking-allowance":
+      return "Checking escrow allowance...";
+    case "approving":
+      return "Approving USDm for escrow...";
+    case "opening":
+      return "Opening channel on-chain...";
+    case "topping-up":
+      return "Topping up channel on-chain...";
     case "signing-voucher":
-      return "Signing session voucher…";
+      return "Signing session voucher...";
     case "submitting":
-      return "Submitting to server…";
+      return "Submitting to server...";
     case "waiting-tx":
-      return "Waiting for tx receipt…";
+      return "Waiting for tx receipt...";
     case "done":
       return "Done";
   }
 }
 
 function fmt(amount: bigint | undefined) {
-  if (amount === undefined) return "—";
+  if (amount === undefined) return "-";
   return `${formatUnits(amount, USDM_DECIMALS)} ${USDM_SYMBOL}`;
 }
 
 function fmtBaseUnits(amount: string | undefined) {
-  if (!amount) return "—";
+  if (!amount) return "-";
   try {
     return `${formatUnits(BigInt(amount), USDM_DECIMALS)} ${USDM_SYMBOL}`;
   } catch {
@@ -93,12 +95,16 @@ function fmtBaseUnits(amount: string | undefined) {
 }
 
 function shortHex(value?: string) {
-  if (!value) return "—";
+  if (!value) return "-";
   if (value.length <= 14) return value;
-  return `${value.slice(0, 10)}…${value.slice(-6)}`;
+  return `${value.slice(0, 10)}...${value.slice(-6)}`;
 }
 
-function MppSessionEventCard({ event }: { event: MppSessionEvent }) {
+function MppOfficialSessionEventCard({
+  event,
+}: {
+  event: MppOfficialSessionEvent;
+}) {
   if (event.kind === "top-up") {
     const entry = event.result;
     return (
@@ -109,18 +115,14 @@ function MppSessionEventCard({ event }: { event: MppSessionEvent }) {
             added {fmtBaseUnits(entry.additionalDeposit)}
           </span>
         </div>
-        {entry.explorerUrl && entry.txHash ? (
-          <a
-            href={entry.explorerUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="mt-1 block break-all text-sky-300 underline-offset-2 hover:underline"
-          >
-            top-up tx · {shortHex(entry.txHash)}
-          </a>
-        ) : (
-          <p className="mt-1 text-white/50">top-up accepted</p>
-        )}
+        <a
+          href={entry.explorerUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-1 block break-all text-sky-300 underline-offset-2 hover:underline"
+        >
+          top-up tx - {shortHex(entry.txHash)}
+        </a>
         <div className="mt-2">
           <PaymentTimingMetrics timing={entry.timing} />
         </div>
@@ -144,7 +146,7 @@ function MppSessionEventCard({ event }: { event: MppSessionEvent }) {
           rel="noreferrer"
           className="mt-1 block break-all text-sky-300 underline-offset-2 hover:underline"
         >
-          close tx · {shortHex(entry.txHash)}
+          close tx - {shortHex(entry.txHash)}
         </a>
         <p className="mt-1 text-white/50">
           refunded {fmtBaseUnits(entry.refundAmount)}
@@ -161,7 +163,7 @@ function MppSessionEventCard({ event }: { event: MppSessionEvent }) {
     <div className="rounded-lg bg-black/40 p-3 font-mono text-[11px] text-white/80">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="text-white/50">
-          pay #{event.requestNumber} · {entry.action}
+          pay #{event.requestNumber} - {entry.action}
         </span>
         <span className="text-white/40">
           cum {entry.receipt.acceptedCumulative}
@@ -174,7 +176,7 @@ function MppSessionEventCard({ event }: { event: MppSessionEvent }) {
           rel="noreferrer"
           className="mt-1 block break-all text-sky-300 underline-offset-2 hover:underline"
         >
-          open tx · {shortHex(entry.txHash)}
+          open tx - {shortHex(entry.txHash)}
         </a>
       )}
       <div className="mt-2">
@@ -195,17 +197,17 @@ function MppSessionEventCard({ event }: { event: MppSessionEvent }) {
   );
 }
 
-export function MppSessionDemo() {
+export function MppOfficialSessionDemo() {
   const { address, isConnected } = useAccount();
   const { data: walletClient } = useWalletClient();
   const publicClient = usePublicClient();
 
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
-  const [state, setState] = useState<MppSessionLocalState>(initialState);
-  const [events, setEvents] = useState<MppSessionEvent[]>([]);
-  const [closeResult, setCloseResult] = useState<MppSessionCloseResult | null>(
-    null,
-  );
+  const [state, setState] =
+    useState<MppOfficialSessionLocalState>(initialState);
+  const [events, setEvents] = useState<MppOfficialSessionEvent[]>([]);
+  const [closeResult, setCloseResult] =
+    useState<MppOfficialSessionCloseResult | null>(null);
   const [topUpError, setTopUpError] = useState<string | null>(null);
   const [unauthorized, setUnauthorized] = useState<unknown>(null);
   const loading = phase.kind === "loading";
@@ -220,7 +222,10 @@ export function MppSessionDemo() {
 
   async function previewUnpaid() {
     setUnauthorized(null);
-    setPhase({ kind: "loading", step: "GET /api/mpp/session (no payment)" });
+    setPhase({
+      kind: "loading",
+      step: "GET /api/mpp/session (no payment)",
+    });
     try {
       const res = await fetch(MPP_SESSION_PROTECTED_PATH);
       const text = await res.text();
@@ -228,7 +233,7 @@ export function MppSessionDemo() {
       try {
         body = JSON.parse(text);
       } catch {
-        // 402 challenge typically has empty body, the data lives in headers
+        // 402 challenge typically has empty body; data lives in headers.
       }
       const wwwAuth = res.headers.get("WWW-Authenticate");
       setUnauthorized({ status: res.status, wwwAuth, body });
@@ -258,8 +263,8 @@ export function MppSessionDemo() {
     setCloseResult(null);
     setTopUpError(null);
     try {
-      setPhase({ kind: "loading", step: "Starting…" });
-      const { result, nextState } = await payMppSessionRequest({
+      setPhase({ kind: "loading", step: "Starting..." });
+      const { result, nextState } = await payMppOfficialSessionRequest({
         account: address,
         configuredDepositHuman: MPP_SESSION_DEPOSIT_AMOUNT_HUMAN,
         onProgress: (p) =>
@@ -307,8 +312,8 @@ export function MppSessionDemo() {
     setCloseResult(null);
     setTopUpError(null);
     try {
-      setPhase({ kind: "loading", step: "Starting top-up…" });
-      const { result, nextState } = await topUpMppSession({
+      setPhase({ kind: "loading", step: "Starting top-up..." });
+      const { result, nextState } = await topUpMppOfficialSession({
         account: address,
         configuredDepositHuman: MPP_SESSION_DEPOSIT_AMOUNT_HUMAN,
         onProgress: (p) =>
@@ -349,8 +354,8 @@ export function MppSessionDemo() {
       return;
     }
     try {
-      setPhase({ kind: "loading", step: "Starting close…" });
-      const { result, nextState } = await closeMppSession({
+      setPhase({ kind: "loading", step: "Starting close..." });
+      const { result, nextState } = await closeMppOfficialSession({
         account: address,
         onProgress: (p) =>
           setPhase({ kind: "loading", step: stepLabel(p.step) }),
@@ -392,16 +397,14 @@ export function MppSessionDemo() {
         mpp · session
       </span>
       <h3 className="mt-3 text-lg font-medium text-white">
-        Pay-as-you-go session ({MPP_SESSION_REQUEST_AMOUNT_HUMAN} {USDM_SYMBOL}/
-        request)
+        Pay-as-you-go session ({MPP_SESSION_REQUEST_AMOUNT_HUMAN} {USDM_SYMBOL}
+        /request)
       </h3>
       <p className="mt-1 text-sm text-white/50">
-        Permit2 + off-chain vouchers. Server pays gas for open / top-up /
-        close, and can sponsor the USDm permit when Permit2 allowance is
-        missing. Deposit{" "}
-        {MPP_SESSION_DEPOSIT_AMOUNT_HUMAN} {USDM_SYMBOL} on first request, then
-        sign a voucher per request. Close to settle on-chain and refund unused
-        deposit.
+        Official-style MPP session on MegaETH. Your wallet pays gas for escrow
+        open and top-up, then signs off-chain vouchers per request. Deposit{" "}
+        {MPP_SESSION_DEPOSIT_AMOUNT_HUMAN} {USDM_SYMBOL} on first request.
+        Close to settle on-chain and refund unused deposit.
       </p>
 
       <div className="mt-5 flex flex-wrap gap-2">
@@ -430,7 +433,7 @@ export function MppSessionDemo() {
           onClick={topUpSession}
           className="rounded-lg border border-emerald-300/30 px-3 py-2 text-xs font-medium text-emerald-200 transition hover:bg-emerald-300/10 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Top up {MPP_SESSION_DEPOSIT_AMOUNT_HUMAN} {USDM_SYMBOL}
+          Top up {MPP_SESSION_DEPOSIT_AMOUNT_HUMAN} {USDM_SYMBOL} on-chain
         </button>
         <button
           type="button"
@@ -515,7 +518,7 @@ export function MppSessionDemo() {
           </p>
           <div className="space-y-2">
             {newestEvents.map((event) => (
-              <MppSessionEventCard event={event} key={event.sequence} />
+              <MppOfficialSessionEventCard event={event} key={event.sequence} />
             ))}
           </div>
         </div>

@@ -1,4 +1,4 @@
-import { getAddress, type Address } from "viem";
+import { getAddress, isAddressEqual, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { USDM_ADDRESS, USDM_DECIMALS } from "./usdm.ts";
 import {
@@ -7,6 +7,8 @@ import {
 } from "./mpp-session-store.ts";
 
 export const MPP_SESSION_PROTECTED_PATH = "/api/mpp/session";
+export const MPP_SESSION_GASLESS_PROTECTED_PATH =
+  "/api/mpp/session-gasless";
 
 const ESCROW_RAW =
   process.env.NEXT_PUBLIC_MPP_SESSION_ESCROW ??
@@ -64,8 +66,19 @@ export function getMppSessionReadiness(): MppSessionReadiness {
   const missingEnv: string[] = [];
   if (!getMppSecretKey()) missingEnv.push("MPP_SECRET_KEY");
   if (!process.env.SERVER_PRIVATE_KEY) missingEnv.push("SERVER_PRIVATE_KEY");
-  if (!getMppSessionPayToAddress())
+  const payTo = getMppSessionPayToAddress();
+  const closeSigner = serverSessionCloseSignerAddress();
+  if (!payTo)
     missingEnv.push("PAY_TO (or SERVER_PRIVATE_KEY)");
+  if (
+    payTo &&
+    closeSigner &&
+    !isAddressEqual(payTo, closeSigner)
+  ) {
+    missingEnv.push(
+      "PAY_TO must match SERVER_PRIVATE_KEY address for MPP session close",
+    );
+  }
   if (
     shouldRequireDurableMppSessionStore() &&
     !isMppSessionDurableStoreConfigured()
@@ -75,4 +88,11 @@ export function getMppSessionReadiness(): MppSessionReadiness {
     );
   }
   return { ready: missingEnv.length === 0, missingEnv };
+}
+
+function serverSessionCloseSignerAddress(): Address | null {
+  const pk = process.env.SERVER_PRIVATE_KEY;
+  if (!pk) return null;
+  const normalized = (pk.startsWith("0x") ? pk : `0x${pk}`) as `0x${string}`;
+  return privateKeyToAccount(normalized).address;
 }

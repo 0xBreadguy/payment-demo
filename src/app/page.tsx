@@ -1,6 +1,7 @@
 import { MppDemo } from "@/components/MppDemo";
 import { MppGaslessDemo } from "@/components/MppGaslessDemo";
-import { MppSessionDemo } from "@/components/MppSessionDemo";
+import { MppOfficialSessionDemo } from "@/components/MppOfficialSessionDemo";
+import { MppSessionGaslessDemo } from "@/components/MppSessionGaslessDemo";
 import { Permit2Panel } from "@/components/Permit2Panel";
 import { UsdmPanel } from "@/components/UsdmPanel";
 import { WalletPanel } from "@/components/WalletPanel";
@@ -41,7 +42,8 @@ export default function Home() {
       </section>
 
       <section className="grid grid-cols-1 gap-6">
-        <MppSessionDemo />
+        <MppOfficialSessionDemo />
+        <MppSessionGaslessDemo />
       </section>
     </main>
   );
