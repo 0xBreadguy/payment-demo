@@ -129,10 +129,11 @@ Main differences from the official-style route:
 The upstream baseline is
 `tempoxyz/tempo@943c4314234bb6b3b9eff02a1c8a41414660b1fa:tips/ref-impls/src/TempoStreamChannel.sol`.
 It opens and tops up directly with approve plus `transferFrom`.
-`TempoStreamChannelEvm.sol` is this project's retained escrow implementation of
-the same channel semantics and adds gasless funding entry points so a server
-relayer can submit open/top-up transactions for the payer. See
-`contract/README.md` for the retained contract provenance table.
+`TempoStreamChannel.sol` is the retained base implementation of the same
+channel semantics. `TempoStreamChannelEvm.sol` inherits it and adds gasless
+funding entry points so a server relayer can submit open/top-up transactions
+for the payer. See `contract/README.md` for the retained contract provenance
+table.
 
 | Method | Base `TempoStreamChannel` | EVM version changes | Current route usage |
 | --- | --- | --- | --- |

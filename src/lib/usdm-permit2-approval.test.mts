@@ -28,7 +28,7 @@ test("keeps recommended optional Permit2 approval interactive before allowance i
     (await import(moduleUrl)) as typeof import("./usdm-permit2-approval");
 
   const state = getPermit2ApprovalUiState({
-    allowance: 0n,
+    allowance: BigInt(0),
     isConnected: true,
     isPending: false,
   });

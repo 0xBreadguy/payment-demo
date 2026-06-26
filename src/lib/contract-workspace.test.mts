@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readdirSync, statSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -29,6 +29,7 @@ function listFiles(root: string): string[] {
 
 test("contract workspace only keeps the deployed escrow dependency closure", () => {
   assert.deepEqual(listFiles(path.join(repoRoot, "contract/src")), [
+    "TempoStreamChannel.sol",
     "TempoStreamChannelEvm.sol",
     "interfaces/IERC3009.sol",
     "interfaces/ITIP20.sol",
@@ -43,4 +44,23 @@ test("contract workspace only keeps the deployed escrow dependency closure", () 
     "src/interfaces/IMulticall3.sol",
     "src/interfaces/IPermit2.sol",
   ]);
+});
+
+test("TempoStreamChannelEvm inherits the shared stream-channel implementation", () => {
+  const evmSource = readFileSync(
+    path.join(repoRoot, "contract/src/TempoStreamChannelEvm.sol"),
+    "utf8",
+  );
+
+  assert.match(
+    evmSource,
+    /import\s+\{\s*TempoStreamChannel\s*\}\s+from\s+"\.\/TempoStreamChannel\.sol";/,
+  );
+  assert.match(
+    evmSource,
+    /contract\s+TempoStreamChannelEvm\s+is\s+TempoStreamChannel\s*\{/,
+  );
+  assert.doesNotMatch(evmSource, /function\s+settle\s*\(/);
+  assert.doesNotMatch(evmSource, /function\s+close\s*\(/);
+  assert.doesNotMatch(evmSource, /function\s+withdraw\s*\(/);
 });
