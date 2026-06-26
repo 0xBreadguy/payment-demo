@@ -8,7 +8,7 @@ This document summarizes the current MPP `tempo.session` pay-as-you-go scheme:
 
 - The official session lifecycle and client/server responsibilities.
 - The main MegaETH / EVM changes compared with the official default model.
-- The core method differences between `TempoStreamChannelEvm.sol` and `TempoStreamChannel.sol`.
+- The core method differences between `TempoStreamChannelEvm.sol` and the upstream Tempo stream-channel baseline.
 
 References:
 
@@ -100,7 +100,6 @@ Relevant files:
 - `src/lib/mpp-session-browser-client.ts`
 - `src/lib/megaeth-session.ts`
 - `src/lib/mpp-session-store.ts`
-- `contract/src/TempoStreamChannel.sol`
 - `contract/src/TempoStreamChannelEvm.sol`
 
 ### Gasless Flow
@@ -127,14 +126,13 @@ Main differences from the official-style route:
 
 ## Contract Diff Overview
 
-`TempoStreamChannel.sol` is derived from
-`tempoxyz/tempo@943c4314234bb6b3b9eff02a1c8a41414660b1fa:tips/ref-impls/src/TempoStreamChannel.sol`,
-with the upstream TIP-20-only token validation removed for this demo. The payer
-opens and tops up directly with approve plus `transferFrom`.
-`TempoStreamChannelEvm.sol` is this project's extension of the same channel
-semantics and adds gasless funding entry points so a server relayer can submit
-open/top-up transactions for the payer. See `contract/README.md` for the full
-contract provenance table.
+The upstream baseline is
+`tempoxyz/tempo@943c4314234bb6b3b9eff02a1c8a41414660b1fa:tips/ref-impls/src/TempoStreamChannel.sol`.
+It opens and tops up directly with approve plus `transferFrom`.
+`TempoStreamChannelEvm.sol` is this project's retained escrow implementation of
+the same channel semantics and adds gasless funding entry points so a server
+relayer can submit open/top-up transactions for the payer. See
+`contract/README.md` for the retained contract provenance table.
 
 | Method | Base `TempoStreamChannel` | EVM version changes | Current route usage |
 | --- | --- | --- | --- |
