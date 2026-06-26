@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
+// Derived from tempoxyz/tempo@943c4314234bb6b3b9eff02a1c8a41414660b1fa.
+// Local change: omits the upstream TIP-20-only token validation in open(...).
 pragma solidity ^0.8.20;
 
-// import { TempoUtilities } from "./TempoUtilities.sol";
 import { ITIP20 } from "./interfaces/ITIP20.sol";
 import { ITempoStreamChannel } from "./interfaces/ITempoStreamChannel.sol";
 import { ECDSA } from "solady/utils/ECDSA.sol";

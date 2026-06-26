@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// Payment-demo extension of TempoStreamChannel with Permit2 and EIP-3009 relayer funding.
 pragma solidity ^0.8.20;
 
 import { ITIP20 } from "./interfaces/ITIP20.sol";

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: MIT
+// Payment-demo support interface for EIP-3009 receiveWithAuthorization funding.
 pragma solidity ^0.8.20;
 
 /// @title IERC3009
