@@ -17,7 +17,11 @@ test("plans official MPP session open for the first paid request", async () => {
     getMppOfficialSessionPaymentPlan({
       configuredDeposit: BigInt(10),
       requestAmount: BigInt(2),
-      state: { opened: false },
+      state: {
+        cumulativeAmount: BigInt(0),
+        depositAmount: BigInt(0),
+        opened: false,
+      },
     }),
     {
       action: "open",

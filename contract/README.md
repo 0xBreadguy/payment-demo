@@ -18,7 +18,7 @@ The `tempo-std` ref above is the submodule gitlink recorded at
 
 ## Source Classification
 
-### Retained Tempo Reference Interfaces
+### Retained Tempo Reference Sources
 
 The following files match
 `tempoxyz/tempo@943c4314234bb6b3b9eff02a1c8a41414660b1fa:tips/ref-impls/src`
@@ -29,11 +29,17 @@ byte-for-byte:
 | `src/interfaces/ITIP20.sol` | Vendored unmodified |
 | `src/interfaces/ITempoStreamChannel.sol` | Vendored unmodified |
 
+The base stream-channel implementation is retained as a local derived source:
+
+| Local path | Classification | Notes |
+| --- | --- | --- |
+| `src/TempoStreamChannel.sol` | Derived Tempo reference implementation | Omits the upstream TIP-20-only token validation in `open(...)`, matching the payment-demo escrow behavior. |
+
 ### First-Party Payment Demo Sources
 
 | Local path | Classification | Notes |
 | --- | --- | --- |
-| `src/TempoStreamChannelEvm.sol` | First-party escrow | Implements the payment-demo stream-channel escrow with Permit2 and EIP-3009 relayer funding entry points. |
+| `src/TempoStreamChannelEvm.sol` | First-party extension | Inherits `TempoStreamChannel` and adds Permit2 and EIP-3009 relayer funding entry points. |
 | `src/interfaces/IERC3009.sol` | First-party support interface | Minimal `receiveWithAuthorization` interface used by `TempoStreamChannelEvm.sol`. |
 | `foundry.toml` | First-party workspace config | Local Foundry configuration for this repository. |
 
@@ -54,14 +60,17 @@ the source of truth for provenance.
 
 ## Verification Notes
 
-The retained Tempo reference interfaces can be verified from a local clone of
-`tempoxyz/tempo` by comparing Git blob hashes:
+The retained Tempo reference interface files can be verified from a local clone
+of `tempoxyz/tempo` by comparing Git blob hashes:
 
 ```bash
 git -C <path-to-tempo-clone> rev-parse \
   943c4314234bb6b3b9eff02a1c8a41414660b1fa:tips/ref-impls/src/interfaces/ITIP20.sol
 git hash-object contract/src/interfaces/ITIP20.sol
 ```
+
+For `src/TempoStreamChannel.sol`, compare against the same upstream ref while
+accounting for the documented local `open(...)` validation change.
 
 For `tempo-std`, compare each retained source file under `contract/lib/tempo-std`
 against `tempoxyz/tempo-std@91dfcf70289b07ec6409f289917c6d4c9ce7e73e`.
