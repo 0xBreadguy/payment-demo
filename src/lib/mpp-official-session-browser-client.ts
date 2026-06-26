@@ -347,7 +347,7 @@ export async function payMppOfficialSessionRequest(
   const chainSegments: PaymentTimingChainSegment[] = [];
 
   onProgress?.({ step: "requesting" });
-  const initial = await fetch(targetUrl);
+  const initial = await fetch(targetUrl, { method: "POST" });
   if (initial.status !== 402) {
     const bodyText = await initial.text();
     throw new Error(
@@ -519,6 +519,7 @@ export async function payMppOfficialSessionRequest(
 
   onProgress?.({ step: "submitting" });
   const finalResponse = await fetch(targetUrl, {
+    method: "POST",
     headers: { Authorization: credential },
   });
   const bodyText = await finalResponse.text();

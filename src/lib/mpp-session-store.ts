@@ -31,6 +31,11 @@ export type MppSessionStateStore = {
     channelId: Hex,
     state: MegaethSessionChannelState,
   ): Promise<boolean>;
+  putChannelIfHighestEquals(
+    channelId: Hex,
+    expectedHighestVoucherAmount: bigint,
+    state: MegaethSessionChannelState,
+  ): Promise<boolean>;
 };
 
 export type UpstashMppSessionStoreOptions = {
@@ -41,6 +46,20 @@ export type UpstashMppSessionStoreOptions = {
 };
 
 const DEFAULT_KEY_PREFIX = "mpp-session:channel:";
+const PUT_CHANNEL_IF_HIGHEST_EQUALS_SCRIPT = `
+local current = redis.call("GET", KEYS[1])
+if not current then
+  return 0
+end
+
+local state = cjson.decode(current)
+if tostring(state["highestVoucherAmount"]) ~= ARGV[1] then
+  return 0
+end
+
+redis.call("SET", KEYS[1], ARGV[2])
+return 1
+`;
 
 let cachedStore: MppSessionStateStore | null = null;
 let cachedStoreKey: string | null = null;
@@ -88,6 +107,23 @@ export function createMemoryMppSessionStore(): MppSessionStateStore {
     },
     async putChannelIfAbsent(channelId, state) {
       if (channels.has(channelId)) return false;
+      channels.set(channelId, serializeMppSessionChannelState(state));
+      return true;
+    },
+    async putChannelIfHighestEquals(
+      channelId,
+      expectedHighestVoucherAmount,
+      state,
+    ) {
+      const existing = channels.get(channelId);
+      if (!existing) return false;
+      if (
+        existing.highestVoucherAmount !==
+        expectedHighestVoucherAmount.toString()
+      ) {
+        return false;
+      }
+
       channels.set(channelId, serializeMppSessionChannelState(state));
       return true;
     },
@@ -157,6 +193,21 @@ export function createUpstashMppSessionStore(
         "NX",
       ]);
       return result === "OK";
+    },
+    async putChannelIfHighestEquals(
+      channelId,
+      expectedHighestVoucherAmount,
+      state,
+    ) {
+      const result = await command<number | string>([
+        "EVAL",
+        PUT_CHANNEL_IF_HIGHEST_EQUALS_SCRIPT,
+        "1",
+        key(channelId),
+        expectedHighestVoucherAmount.toString(),
+        JSON.stringify(serializeMppSessionChannelState(state)),
+      ]);
+      return Number(result) === 1;
     },
   };
 }

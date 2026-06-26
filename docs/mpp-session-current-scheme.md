@@ -91,7 +91,7 @@ The gasless demo keeps the official session abstraction, but moves on-chain life
 - The client signs only; it does not directly submit `open`, `top-up`, or `close` transactions.
 - The server verifies MPP credentials and pays gas for escrow transactions.
 - The escrow contract is `TempoStreamChannelEvm`, which adds Permit2 and EIP-3009 funding paths.
-- The server stores the highest accepted voucher per channel in memory or Upstash Redis.
+- The server stores the highest accepted voucher per channel in memory or Upstash Redis, and voucher increments use a compare-and-swap update so concurrent duplicate vouchers cannot advance the same channel more than once.
 
 Relevant files:
 
@@ -154,6 +154,5 @@ Key safety bindings in the EVM version:
 
 - Add periodic `settle` to reduce payee settlement risk on long-lived channels.
 - Optimize the voucher hot path to avoid per-request chain reads.
-- Add Redis CAS / Lua to avoid concurrent voucher state races on the same channel.
 - Document or expose `requestClose` / `withdraw` as the payer fallback path.
 - Auto top-up when balance is low instead of requiring a manual UI action.
