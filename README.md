@@ -45,8 +45,8 @@ Open http://localhost:3000.
 - `POST /api/relay` — broadcast a pre-signed raw transaction (`{ rawTx: "0x..." }`)
 - `GET /api/mpp/charge` — MPP `tempo.charge` protected endpoint; plain ERC20 transfer, client pays gas
 - `GET /api/mpp/gasless-charge` — custom MPP `permit20.charge` protected endpoint; client signs EIP-2612 permit, server pays gas for `permit` + `transferFrom`
-- `GET|POST /api/mpp/session` — official-style MPP `tempo.session` pay-as-you-go endpoint; client wallet pays gas for `open` and `topUp`, server verifies vouchers and calls `close`
-- `GET|POST /api/mpp/session-gasless` — Permit2 relayed MPP `tempo.session` endpoint; server pays gas for `openWithPermit2`, `topUpWithPermit2`, and `close`
+- `POST /api/mpp/session` — official-style MPP `tempo.session` pay-as-you-go endpoint; client wallet pays gas for `open` and `topUp`, server verifies vouchers and calls `close`
+- `POST /api/mpp/session-gasless` — Permit2 relayed MPP `tempo.session` endpoint; server pays gas for `openWithPermit2`, `topUpWithPermit2`, and `close`
 
 ## Docs
 

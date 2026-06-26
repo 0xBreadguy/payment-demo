@@ -224,10 +224,10 @@ export function MppOfficialSessionDemo() {
     setUnauthorized(null);
     setPhase({
       kind: "loading",
-      step: "GET /api/mpp/session (no payment)",
+      step: "POST /api/mpp/session (no payment)",
     });
     try {
-      const res = await fetch(MPP_SESSION_PROTECTED_PATH);
+      const res = await fetch(MPP_SESSION_PROTECTED_PATH, { method: "POST" });
       const text = await res.text();
       let body: unknown = text;
       try {

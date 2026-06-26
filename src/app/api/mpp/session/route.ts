@@ -31,6 +31,8 @@ import {
   putOfficialMppSessionOpenChannelOnce,
 } from "@/lib/mpp-session-open-replay";
 import { getMppSessionStateStore } from "@/lib/mpp-session-store";
+import { putMppSessionTopUpChannelState } from "@/lib/mpp-session-top-up-race";
+import { putMppSessionVoucherChannelOnce } from "@/lib/mpp-session-voucher-race";
 import {
   attachPaymentServerTiming,
   collectPaymentServerTiming,
@@ -301,6 +303,8 @@ function getMppx(realm: string): MppxHandler {
                   reason: "session channel is not known to the server",
                 });
               }
+              const expectedHighestVoucherAmount =
+                existing.highestVoucherAmount;
 
               const cumulativeAmount = getPayloadBigInt(
                 payload,
@@ -364,7 +368,12 @@ function getMppx(realm: string): MppxHandler {
                 units: existing.units + 1,
               } satisfies MegaethSessionChannelState;
 
-              await sessionStore.putChannel(channelId, nextState);
+              await putMppSessionVoucherChannelOnce({
+                channelId,
+                expectedHighestVoucherAmount,
+                state: nextState,
+                store: sessionStore,
+              });
 
               return {
                 acceptedCumulative: nextState.highestVoucherAmount.toString(),
@@ -422,15 +431,16 @@ function getMppx(realm: string): MppxHandler {
                 });
               }
 
-              const nextState = {
-                ...existing,
-                closeRequestedAt: onChain.closeRequestedAt,
-                deposit: onChain.deposit,
-                finalized: onChain.finalized,
-                settledOnChain: onChain.settled,
-              } satisfies MegaethSessionChannelState;
-
-              await sessionStore.putChannel(channelId, nextState);
+              const nextState = await putMppSessionTopUpChannelState({
+                channelId,
+                onChain: {
+                  closeRequestedAt: onChain.closeRequestedAt,
+                  deposit: onChain.deposit,
+                  finalized: onChain.finalized,
+                  settledOnChain: onChain.settled,
+                },
+                store: sessionStore,
+              });
 
               return {
                 acceptedCumulative: nextState.highestVoucherAmount.toString(),
@@ -622,8 +632,14 @@ async function handle(request: NextRequest): Promise<Response> {
   );
 }
 
-export async function GET(request: NextRequest) {
-  return handle(request);
+export async function GET() {
+  return NextResponse.json(
+    { error: "MPP session payments must use POST." },
+    {
+      headers: { Allow: "POST" },
+      status: 405,
+    },
+  );
 }
 
 export async function POST(request: NextRequest) {

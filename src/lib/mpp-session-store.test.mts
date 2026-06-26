@@ -54,6 +54,42 @@ test("inserts MPP session channel state only when absent in memory", async () =>
   assert.deepEqual(await store.getChannel(channelId), channelState);
 });
 
+test("advances MPP session voucher state only when the stored highest value matches in memory", async () => {
+  const { createMemoryMppSessionStore } =
+    (await import(storeModuleUrl)) as typeof import("./mpp-session-store");
+  const store = createMemoryMppSessionStore();
+  const firstVoucherState = {
+    ...channelState,
+    highestVoucherAmount: BigInt(4),
+    spent: BigInt(4),
+    units: 4,
+  };
+  const duplicateVoucherState = {
+    ...channelState,
+    highestVoucherAmount: BigInt(4),
+    spent: BigInt(4),
+    units: 99,
+  };
+
+  await store.putChannel(channelId, channelState);
+
+  const results = await Promise.all([
+    store.putChannelIfHighestEquals(
+      channelId,
+      channelState.highestVoucherAmount,
+      firstVoucherState,
+    ),
+    store.putChannelIfHighestEquals(
+      channelId,
+      channelState.highestVoucherAmount,
+      duplicateVoucherState,
+    ),
+  ]);
+
+  assert.deepEqual(results.sort(), [false, true]);
+  assert.deepEqual(await store.getChannel(channelId), firstVoucherState);
+});
+
 test("stores MPP session channel state through Upstash Redis REST", async () => {
   const { createUpstashMppSessionStore } =
     (await import(storeModuleUrl)) as typeof import("./mpp-session-store");
@@ -70,6 +106,24 @@ test("stores MPP session channel state through Upstash Redis REST", async () => 
     );
 
     const [name, key, value, option] = command;
+    if (name === "EVAL") {
+      const [, script, keys, redisKey, expectedHighest, nextValue] = command;
+      assert.equal(typeof script, "string");
+      assert.equal(keys, "1");
+      assert.equal(typeof redisKey, "string");
+      assert.equal(typeof expectedHighest, "string");
+      assert.equal(typeof nextValue, "string");
+
+      const current = values.get(redisKey as string);
+      if (!current) return Response.json({ result: 0 });
+      const state = JSON.parse(current) as { highestVoucherAmount?: string };
+      if (state.highestVoucherAmount !== expectedHighest) {
+        return Response.json({ result: 0 });
+      }
+
+      values.set(redisKey as string, nextValue as string);
+      return Response.json({ result: 1 });
+    }
     if (name === "SET" && typeof key === "string" && typeof value === "string") {
       if (option === "NX" && values.has(key)) {
         return Response.json({ result: null });
@@ -110,8 +164,34 @@ test("stores MPP session channel state through Upstash Redis REST", async () => 
     spent: BigInt(9),
     units: 9,
   };
+  const nextVoucherState = {
+    ...channelState,
+    highestVoucherAmount: BigInt(4),
+    spent: BigInt(4),
+    units: 4,
+  };
+  assert.equal(
+    await store.putChannelIfHighestEquals(
+      channelId,
+      channelState.highestVoucherAmount,
+      nextVoucherState,
+    ),
+    true,
+  );
+  assert.equal(
+    await store.putChannelIfHighestEquals(
+      channelId,
+      channelState.highestVoucherAmount,
+      competingState,
+    ),
+    false,
+  );
+  assert.deepEqual(await store.getChannel(channelId), nextVoucherState);
+  assert.equal(commands.at(-2)?.[0], "EVAL");
+  assert.equal(commands.at(-2)?.[1] === "GET", false);
+
   assert.equal(await store.putChannelIfAbsent(channelId, competingState), false);
-  assert.deepEqual(await store.getChannel(channelId), channelState);
+  assert.deepEqual(await store.getChannel(channelId), nextVoucherState);
 
   await store.deleteChannel(channelId);
   assert.equal(await store.putChannelIfAbsent(channelId, competingState), true);
