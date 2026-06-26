@@ -5,7 +5,7 @@ import { keccak256, parseAbi, type LocalAccount, type WalletClient } from "viem"
 const realtimeModuleUrl = new URL("./megaeth-realtime.ts", import.meta.url).href;
 const chainModuleUrl = new URL("./chain.ts", import.meta.url).href;
 
-function rpcReceipt(hash: `0x${string}`) {
+function rpcReceipt(hash: `0x${string}`, status: "0x0" | "0x1" = "0x1") {
   return {
     blockHash: "0x1111111111111111111111111111111111111111111111111111111111111111",
     blockNumber: "0x10",
@@ -16,7 +16,7 @@ function rpcReceipt(hash: `0x${string}`) {
     gasUsed: "0x5208",
     logs: [],
     logsBloom: "0x" + "0".repeat(512),
-    status: "0x1",
+    status,
     to: "0x0000000000000000000000000000000000000002",
     transactionHash: hash,
     transactionIndex: "0x0",
@@ -55,6 +55,30 @@ test("sends raw transactions with MegaETH realtime RPC and returns the receipt",
       options: { retryCount: 0 },
     },
   ]);
+});
+
+test("rejects realtime RPC receipts whose status is reverted", async () => {
+  const { sendRawTransactionRealtime } =
+    (await import(realtimeModuleUrl)) as typeof import("./megaeth-realtime");
+
+  const hash =
+    "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" as const;
+  const client = {
+    chain: undefined,
+    async request() {
+      return rpcReceipt(hash, "0x0");
+    },
+  };
+
+  await assert.rejects(
+    sendRawTransactionRealtime(client as never, {
+      serializedTransaction: "0x02f8",
+    }),
+    (error: unknown) =>
+      error instanceof Error &&
+      error.message.includes(hash) &&
+      /reverted/i.test(error.message),
+  );
 });
 
 test("writes contracts by signing locally and submitting through realtime RPC", async () => {
@@ -182,6 +206,43 @@ test("sends locally signed transactions through realtime RPC", async () => {
       options: { retryCount: 0 },
     },
   ]);
+});
+
+test("rejects fallback receipts whose status is reverted", async () => {
+  const { sendRawTransactionRealtime, MEGAETH_REALTIME_SEND_RAW_TRANSACTION } =
+    (await import(realtimeModuleUrl)) as typeof import("./megaeth-realtime");
+
+  const serializedTransaction = "0x02f8" as const;
+  const hash = keccak256(serializedTransaction);
+  const client = {
+    chain: undefined,
+    pollingInterval: 1,
+    uid: "megaeth-realtime-reverted-fallback-test",
+    async request(request: { method: string; params?: unknown[] }) {
+      if (request.method === MEGAETH_REALTIME_SEND_RAW_TRANSACTION) {
+        const error = new Error("realtime transaction expired") as Error & {
+          code: number;
+        };
+        error.code = -32000;
+        throw error;
+      }
+      if (request.method === "eth_getTransactionReceipt") {
+        assert.deepEqual(request.params, [hash]);
+        return rpcReceipt(hash, "0x0");
+      }
+      throw new Error(`unexpected method ${request.method}`);
+    },
+  };
+
+  await assert.rejects(
+    sendRawTransactionRealtime(client as never, {
+      serializedTransaction,
+    }),
+    (error: unknown) =>
+      error instanceof Error &&
+      error.message.includes(hash) &&
+      /reverted/i.test(error.message),
+  );
 });
 
 test("falls back to polling when the realtime RPC expires after submission", async () => {
