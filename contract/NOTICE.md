@@ -17,9 +17,8 @@ The full upstream license texts are included in:
 - `contract/LICENSE-MIT`
 - `contract/LICENSE-APACHE`
 
-Most files copied from this source are unmodified. The local provenance table in
-`contract/README.md` identifies the exact files and the local changes to
-`TempoStreamChannel.sol`.
+Only the payment-demo escrow dependency subset is retained locally. The
+provenance table in `contract/README.md` identifies the exact retained files.
 
 ## Tempo Standard Library
 
