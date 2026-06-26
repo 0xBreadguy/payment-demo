@@ -127,7 +127,14 @@ Main differences from the official-style route:
 
 ## Contract Diff Overview
 
-`TempoStreamChannel.sol` is the base unidirectional channel. The payer opens and tops up directly with approve plus `transferFrom`. `TempoStreamChannelEvm.sol` keeps the same channel semantics and adds gasless funding entry points so a server relayer can submit open/top-up transactions for the payer.
+`TempoStreamChannel.sol` is derived from
+`tempoxyz/tempo@943c4314234bb6b3b9eff02a1c8a41414660b1fa:tips/ref-impls/src/TempoStreamChannel.sol`,
+with the upstream TIP-20-only token validation removed for this demo. The payer
+opens and tops up directly with approve plus `transferFrom`.
+`TempoStreamChannelEvm.sol` is this project's extension of the same channel
+semantics and adds gasless funding entry points so a server relayer can submit
+open/top-up transactions for the payer. See `contract/README.md` for the full
+contract provenance table.
 
 | Method | Base `TempoStreamChannel` | EVM version changes | Current route usage |
 | --- | --- | --- | --- |
