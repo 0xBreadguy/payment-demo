@@ -77,6 +77,16 @@ function formatRealtimeReceipt<chain extends Chain | undefined>(
   return format(receipt as never) as TransactionReceipt;
 }
 
+function assertSuccessfulRealtimeReceipt(receipt: TransactionReceipt) {
+  if (receipt.status !== "success") {
+    throw new Error(
+      `MegaETH realtime transaction ${receipt.transactionHash} did not succeed (status: ${receipt.status})`,
+    );
+  }
+
+  return receipt;
+}
+
 function isRealtimeTransactionExpired(error: unknown): boolean {
   const seen = new Set<unknown>();
   let current: unknown = error;
@@ -140,15 +150,16 @@ export async function sendRawTransactionRealtime<
       } as never,
       { retryCount: 0 },
     );
-    return formatRealtimeReceipt(client, receipt);
+    return assertSuccessfulRealtimeReceipt(formatRealtimeReceipt(client, receipt));
   } catch (error) {
     if (!isRealtimeTransactionExpired(error)) {
       throw error;
     }
 
-    return waitForTransactionReceipt(client, {
+    const receipt = await waitForTransactionReceipt(client, {
       hash: keccak256(serializedTransaction),
-    }) as Promise<TransactionReceipt>;
+    });
+    return assertSuccessfulRealtimeReceipt(receipt as TransactionReceipt);
   }
 }
 
