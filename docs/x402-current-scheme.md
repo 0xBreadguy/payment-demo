@@ -48,6 +48,20 @@ In this app the resource server is the Next.js route using `withX402`. The
 facilitator can run locally through `/api/x402/facilitator/[action]`, backed by
 `SERVER_PRIVATE_KEY`, or be replaced with `X402_FACILITATOR_URL`.
 
+Production caveat: the local facilitator HTTP route in this demo is intentionally
+unauthenticated. It is suitable as a reference endpoint for the demo flow, not as
+a public production service. If `/api/x402/facilitator/verify` or
+`/api/x402/facilitator/settle` is exposed outside the app boundary, protect it
+with server-to-server authentication, platform access controls, an allowlist, or
+a private network boundary. Unauthenticated requests must not be able to reach a
+settlement path that can spend gas from `SERVER_PRIVATE_KEY`.
+
+The facilitator signer also shares the same production concern as the other
+server-sponsored routes: concurrent transactions from one `SERVER_PRIVATE_KEY`
+need signer-scoped nonce management or queueing. A production deployment should
+add that relayer infrastructure, or use a managed/external facilitator that
+provides the same guarantees.
+
 ## Permit2 And EIP-2612 Sponsorship
 
 The protected route sets `assetTransferMethod: "permit2"` and declares

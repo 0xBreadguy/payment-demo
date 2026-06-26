@@ -93,6 +93,15 @@ The gasless demo keeps the official session abstraction, but moves on-chain life
 - The escrow contract is `TempoStreamChannelEvm`, which adds Permit2 and EIP-3009 funding paths.
 - The server stores the highest accepted voucher per channel in memory or Upstash Redis, and voucher increments use a compare-and-swap update so concurrent duplicate vouchers cannot advance the same channel more than once.
 
+Production caveat: the gasless route is a relayer-backed demo endpoint. Because
+the server pays gas for `openWithPermit2`, `topUpWithPermit2`, and `close`, a
+production deployment must add authentication or wallet challenge checks, rate
+limiting, per-wallet/IP quotas, spend caps, monitoring, and a circuit breaker.
+It must also add signer-scoped nonce management or queueing for the
+`SERVER_PRIVATE_KEY` relayer so concurrent sponsored transactions cannot race the
+same nonce. For higher isolation, use separate relayer signers for faucet,
+x402, one-time gasless charges, and session settlement.
+
 Relevant files:
 
 - `src/app/api/mpp/session-gasless/route.ts`
