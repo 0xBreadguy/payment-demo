@@ -48,6 +48,27 @@ Open http://localhost:3000.
 - `POST /api/mpp/session` — official-style MPP `tempo.session` pay-as-you-go endpoint; client wallet pays gas for `open` and `topUp`, server verifies vouchers and calls `close`
 - `POST /api/mpp/session-gasless` — Permit2 relayed MPP `tempo.session` endpoint; server pays gas for `openWithPermit2`, `topUpWithPermit2`, and `close`
 
+## Production Hardening Caveats
+
+This repository is a reference demo. Some server-side deployment controls are
+intentionally omitted to keep the payment flows easy to inspect:
+
+- The local x402 facilitator HTTP route is not authenticated. The default app
+  path can use the in-process facilitator, but any production deployment that
+  exposes `/api/x402/facilitator/verify` or `/api/x402/facilitator/settle` must
+  protect those endpoints with server-to-server authentication, platform access
+  controls, an allowlist, or a private network boundary.
+- `SERVER_PRIVATE_KEY` is reused by the server-sponsored flows and is created
+  without signer-scoped nonce management. Production relayers should add a
+  transaction queue or nonce manager per signer, or split duties across separate
+  signers so concurrent sponsored writes cannot race the same nonce.
+- Server-sponsored demo endpoints such as `/api/faucet`,
+  `/api/mpp/gasless-charge`, and `/api/mpp/session-gasless` pay gas from the
+  server signer. Production deployments must add authentication, rate limiting,
+  per-wallet/IP quotas, spend caps, monitoring, and a circuit breaker. The faucet
+  is a development convenience and should be disabled or protected outside a
+  throwaway demo.
+
 ## Docs
 
 - [x402 current scheme](docs/x402-current-scheme.md) — x402 exact payment flow, Permit2 transfer method, and EIP-2612 gas sponsorship.
