@@ -28,7 +28,6 @@ type RealtimeRpcError = Error & {
   code?: number;
   details?: string;
   shortMessage?: string;
-  walk?: (callback: (error: unknown) => boolean) => unknown;
 };
 
 export type SendRawTransactionRealtimeParameters = {
@@ -105,13 +104,6 @@ function isRealtimeTransactionExpired(error: unknown): boolean {
     if (
       rpcError.code === -32000 &&
       /realtime transaction expired/i.test(message)
-    ) {
-      return true;
-    }
-
-    if (
-      typeof rpcError.walk === "function" &&
-      rpcError.walk(isRealtimeTransactionExpired)
     ) {
       return true;
     }

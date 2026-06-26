@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { keccak256, parseAbi, type LocalAccount, type WalletClient } from "viem";
+import {
+  BaseError,
+  keccak256,
+  parseAbi,
+  type LocalAccount,
+  type WalletClient,
+} from "viem";
 
 const realtimeModuleUrl = new URL("./megaeth-realtime.ts", import.meta.url).href;
 const chainModuleUrl = new URL("./chain.ts", import.meta.url).href;
@@ -245,6 +251,28 @@ test("rejects fallback receipts whose status is reverted", async () => {
   );
 });
 
+test("surfaces non-expiry viem errors without recursing", async () => {
+  const { sendRawTransactionRealtime } =
+    (await import(realtimeModuleUrl)) as typeof import("./megaeth-realtime");
+
+  const originalError = new BaseError("nonce too low", {
+    details: "nonce too low",
+  });
+  const client = {
+    chain: undefined,
+    async request() {
+      throw originalError;
+    },
+  };
+
+  await assert.rejects(
+    sendRawTransactionRealtime(client as never, {
+      serializedTransaction: "0x02f8",
+    }),
+    (error: unknown) => error === originalError,
+  );
+});
+
 test("falls back to polling when the realtime RPC expires after submission", async () => {
   const { sendRawTransactionRealtime, MEGAETH_REALTIME_SEND_RAW_TRANSACTION } =
     (await import(realtimeModuleUrl)) as typeof import("./megaeth-realtime");
@@ -264,6 +292,58 @@ test("falls back to polling when the realtime RPC expires after submission", asy
         };
         error.code = -32000;
         throw error;
+      }
+      if (request.method === "eth_getTransactionReceipt") {
+        assert.deepEqual(request.params, [hash]);
+        return rpcReceipt(hash);
+      }
+      throw new Error(`unexpected method ${request.method}`);
+    },
+  };
+
+  const receipt = await sendRawTransactionRealtime(client as never, {
+    serializedTransaction,
+  });
+
+  assert.equal(receipt.transactionHash, hash);
+  assert.equal(receipt.status, "success");
+  assert.deepEqual(calls, [
+    {
+      request: {
+        method: MEGAETH_REALTIME_SEND_RAW_TRANSACTION,
+        params: [serializedTransaction],
+      },
+      options: { retryCount: 0 },
+    },
+    {
+      request: {
+        method: "eth_getTransactionReceipt",
+        params: [hash],
+      },
+      options: { dedupe: true },
+    },
+  ]);
+});
+
+test("falls back to polling when a viem error wraps realtime expiry", async () => {
+  const { sendRawTransactionRealtime, MEGAETH_REALTIME_SEND_RAW_TRANSACTION } =
+    (await import(realtimeModuleUrl)) as typeof import("./megaeth-realtime");
+
+  const serializedTransaction = "0x02f8" as const;
+  const hash = keccak256(serializedTransaction);
+  const calls: unknown[] = [];
+  const client = {
+    chain: undefined,
+    pollingInterval: 1,
+    uid: "megaeth-realtime-wrapped-expiry-test",
+    async request(request: { method: string; params?: unknown[] }, options: unknown) {
+      calls.push({ request, options });
+      if (request.method === MEGAETH_REALTIME_SEND_RAW_TRANSACTION) {
+        const cause = new Error("realtime transaction expired") as Error & {
+          code: number;
+        };
+        cause.code = -32000;
+        throw new BaseError("realtime send failed", { cause });
       }
       if (request.method === "eth_getTransactionReceipt") {
         assert.deepEqual(request.params, [hash]);
