@@ -27,10 +27,12 @@ export const megaethErc20Abi = parseAbi([
 export const megaethSessionEscrowAbi = parseAbi([
   "function getChannel(bytes32 channelId) view returns ((bool finalized, uint64 closeRequestedAt, address payer, address payee, address token, address authorizedSigner, uint128 deposit, uint128 settled))",
   "function open(address payee, address token, uint128 deposit, bytes32 salt, address authorizedSigner) returns (bytes32 channelId)",
-  "function topUp(bytes32 channelId, uint256 additionalDeposit)",
-  "function openWithPermit2(address payer, address payee, address token, uint128 deposit, bytes32 salt, address authorizedSigner, uint256 nonce, uint256 deadline, bytes permit2Signature) returns (bytes32 channelId)",
+  "function topUp(bytes32 channelId, uint128 additionalDeposit)",
+  "function openWithAuthorization(address payee, address token, uint128 deposit, bytes32 salt, address authorizedSigner, address from, uint256 validAfter, uint256 validBefore, bytes32 nonce, bytes signature) returns (bytes32 channelId)",
+  "function openWithPermit2(address payee, address token, uint128 deposit, bytes32 salt, address authorizedSigner, address from, uint256 nonce, uint256 deadline, bytes signature) returns (bytes32 channelId)",
   "function close(bytes32 channelId, uint128 cumulativeAmount, bytes signature)",
-  "function topUpWithPermit2(bytes32 channelId, uint256 additionalDeposit, uint256 nonce, uint256 deadline, bytes permit2Signature)",
+  "function topUpWithAuthorization(bytes32 channelId, uint128 additionalDeposit, address from, bytes32 topUpSalt, uint256 validAfter, uint256 validBefore, bytes32 nonce, bytes signature)",
+  "function topUpWithPermit2(bytes32 channelId, uint128 additionalDeposit, address from, uint256 nonce, uint256 deadline, bytes signature)",
 ]);
 
 export type MegaethSessionPaymentPlan =
@@ -285,9 +287,27 @@ export async function signMegaethSessionVoucher(parameters: {
 
   return signTypedData(client, {
     account,
+    ...buildMegaethSessionVoucherTypedData({
+      chainId,
+      channelId,
+      cumulativeAmount,
+      escrowContract,
+    }),
+  });
+}
+
+export function buildMegaethSessionVoucherTypedData(parameters: {
+  chainId: number;
+  channelId: Hex;
+  cumulativeAmount: bigint;
+  escrowContract: Address;
+}) {
+  const { chainId, channelId, cumulativeAmount, escrowContract } = parameters;
+
+  return {
     domain: {
       chainId,
-      name: "Tempo Stream Channel",
+      name: "EVM Payment Channel",
       verifyingContract: escrowContract,
       version: "1",
     },
@@ -295,9 +315,9 @@ export async function signMegaethSessionVoucher(parameters: {
       channelId,
       cumulativeAmount,
     },
-    primaryType: "Voucher",
+    primaryType: "Voucher" as const,
     types: voucherTypes,
-  });
+  };
 }
 
 export async function verifyMegaethSessionVoucher(parameters: {
@@ -310,19 +330,13 @@ export async function verifyMegaethSessionVoucher(parameters: {
 
   try {
     const recovered = await recoverTypedDataAddress({
-      domain: {
+      ...buildMegaethSessionVoucherTypedData({
         chainId,
-        name: "Tempo Stream Channel",
-        verifyingContract: escrowContract,
-        version: "1",
-      },
-      message: {
         channelId: voucher.channelId,
         cumulativeAmount: voucher.cumulativeAmount,
-      },
-      primaryType: "Voucher",
+        escrowContract,
+      }),
       signature: voucher.signature,
-      types: voucherTypes,
     });
 
     return recovered.toLowerCase() === expectedSigner.toLowerCase();
@@ -337,9 +351,9 @@ const permit2OpenWitnessTypes = {
     { name: "spender", type: "address" },
     { name: "nonce", type: "uint256" },
     { name: "deadline", type: "uint256" },
-    { name: "witness", type: "OpenChannelWitness" },
+    { name: "witness", type: "ChannelOpenWitness" },
   ],
-  OpenChannelWitness: [
+  ChannelOpenWitness: [
     { name: "payee", type: "address" },
     { name: "salt", type: "bytes32" },
     { name: "authorizedSigner", type: "address" },
@@ -356,9 +370,9 @@ const permit2TopUpWitnessTypes = {
     { name: "spender", type: "address" },
     { name: "nonce", type: "uint256" },
     { name: "deadline", type: "uint256" },
-    { name: "witness", type: "TopUpWitness" },
+    { name: "witness", type: "ChannelTopUpWitness" },
   ],
-  TopUpWitness: [{ name: "channelId", type: "bytes32" }],
+  ChannelTopUpWitness: [{ name: "channelId", type: "bytes32" }],
   TokenPermissions: [
     { name: "token", type: "address" },
     { name: "amount", type: "uint256" },

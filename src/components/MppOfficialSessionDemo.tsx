@@ -394,15 +394,15 @@ export function MppOfficialSessionDemo() {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur">
       <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-white/60">
-        mpp · session
+        evm · session
       </span>
       <h3 className="mt-3 text-lg font-medium text-white">
-        Pay-as-you-go session ({MPP_SESSION_REQUEST_AMOUNT_HUMAN} {USDM_SYMBOL}
-        /request)
+        EVM session: client pays gas ({MPP_SESSION_REQUEST_AMOUNT_HUMAN}{" "}
+        {USDM_SYMBOL}/request)
       </h3>
       <p className="mt-1 text-sm text-white/50">
-        Official-style MPP session on MegaETH. Your wallet pays gas for escrow
-        open and top-up, then signs off-chain vouchers per request. Deposit{" "}
+        Your wallet pays gas for escrow open and top-up, then signs off-chain
+        EVM session vouchers per request. Deposit{" "}
         {MPP_SESSION_DEPOSIT_AMOUNT_HUMAN} {USDM_SYMBOL} on first request.
         Close to settle on-chain and refund unused deposit.
       </p>

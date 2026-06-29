@@ -83,6 +83,23 @@ test("exports separate official and gasless MPP session route constants", async 
   );
 });
 
+test("exports MPP session request and deposit amounts in base units", async () => {
+  configureBaseEnv();
+  clearDurableStoreEnv();
+  delete process.env.VERCEL;
+  delete process.env.MPP_SESSION_REQUIRE_DURABLE_STORE;
+  process.env.NEXT_PUBLIC_MPP_SESSION_REQUEST_AMOUNT = "1.25";
+  process.env.NEXT_PUBLIC_MPP_SESSION_DEPOSIT_AMOUNT = "10.5";
+
+  const {
+    MPP_SESSION_DEPOSIT_AMOUNT_BASE_UNITS,
+    MPP_SESSION_REQUEST_AMOUNT_BASE_UNITS,
+  } = await importConfig();
+
+  assert.equal(MPP_SESSION_REQUEST_AMOUNT_BASE_UNITS, "1250000000000000000");
+  assert.equal(MPP_SESSION_DEPOSIT_AMOUNT_BASE_UNITS, "10500000000000000000");
+});
+
 test("requires session payee to match server signer so close can settle", async () => {
   configureBaseEnv();
   clearDurableStoreEnv();

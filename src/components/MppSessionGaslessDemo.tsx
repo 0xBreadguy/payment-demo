@@ -394,10 +394,10 @@ export function MppSessionGaslessDemo() {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur">
       <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider text-white/60">
-        mpp · session · gasless
+        evm · session · permit2
       </span>
       <h3 className="mt-3 text-lg font-medium text-white">
-        Pay-as-you-go session gasless ({MPP_SESSION_REQUEST_AMOUNT_HUMAN}{" "}
+        EVM session: Permit2 gasless ({MPP_SESSION_REQUEST_AMOUNT_HUMAN}{" "}
         {USDM_SYMBOL}/request)
       </h3>
       <p className="mt-1 text-sm text-white/50">

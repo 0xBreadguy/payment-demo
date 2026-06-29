@@ -196,3 +196,32 @@ test("falls back to viem writeContract when wallet_sendTransaction is unsupporte
   assert.equal(result, hash);
   assert.deepEqual(calls, ["wallet_sendTransaction", "writeContract"]);
 });
+
+test("official session receipt parser preserves EVM session spec fields", async () => {
+  const { buildMppOfficialSessionReceipt } =
+    (await import(officialClientModuleUrl)) as typeof import("./mpp-official-session-browser-client");
+
+  const receipt = buildMppOfficialSessionReceipt({
+    acceptedCumulative: "250000",
+    chainId: 6343,
+    challengeId: "challenge-id",
+    channelId:
+      "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    intent: "session",
+    method: "evm",
+    reference:
+      "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    spent: "250000",
+    status: "success",
+    timestamp: "2026-04-01T12:08:30.000Z",
+    units: 1,
+  });
+
+  assert.equal(receipt.method, "evm");
+  assert.equal(receipt.intent, "session");
+  assert.equal(
+    receipt.reference,
+    "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  );
+  assert.equal(receipt.chainId, 6343);
+});

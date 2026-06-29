@@ -27,13 +27,15 @@ byte-for-byte:
 | Local path | Classification |
 | --- | --- |
 | `src/interfaces/ITIP20.sol` | Vendored unmodified |
-| `src/interfaces/ITempoStreamChannel.sol` | Vendored unmodified |
+| `src/interfaces/ITempoStreamChannel.sol` | Derived Tempo reference interface |
 
-The base stream-channel implementation is retained as a local derived source:
+The base stream-channel implementation and interface are retained as local
+derived sources:
 
 | Local path | Classification | Notes |
 | --- | --- | --- |
-| `src/TempoStreamChannel.sol` | Derived Tempo reference implementation | Omits the upstream TIP-20-only token validation in `open(...)`, matching the payment-demo escrow behavior. |
+| `src/interfaces/ITempoStreamChannel.sol` | Derived Tempo reference interface | Aligns `topUp` and nonce errors with the EVM session contract surface used by the demo. |
+| `src/TempoStreamChannel.sol` | Derived Tempo reference implementation | Omits the upstream TIP-20-only token validation in `open(...)`, uses the EVM session voucher domain, and retains finalized channel records. |
 
 ### First-Party Payment Demo Sources
 
@@ -69,8 +71,9 @@ git -C <path-to-tempo-clone> rev-parse \
 git hash-object contract/src/interfaces/ITIP20.sol
 ```
 
-For `src/TempoStreamChannel.sol`, compare against the same upstream ref while
-accounting for the documented local `open(...)` validation change.
+For `src/interfaces/ITempoStreamChannel.sol` and `src/TempoStreamChannel.sol`,
+compare against the same upstream ref while accounting for the documented local
+EVM session changes.
 
 For `tempo-std`, compare each retained source file under `contract/lib/tempo-std`
 against `tempoxyz/tempo-std@91dfcf70289b07ec6409f289917c6d4c9ce7e73e`.

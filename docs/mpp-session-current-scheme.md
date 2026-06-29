@@ -4,7 +4,7 @@ Date: 2026-05-25
 
 ## Goal
 
-This document summarizes the current MPP `tempo.session` pay-as-you-go scheme:
+This document summarizes the current MPP `evm.session` pay-as-you-go scheme:
 
 - The official session lifecycle and client/server responsibilities.
 - The main MegaETH / EVM changes compared with the official default model.
@@ -13,8 +13,8 @@ This document summarizes the current MPP `tempo.session` pay-as-you-go scheme:
 References:
 
 - [MPP pay-as-you-go guide](https://mpp.dev/guides/pay-as-you-go.md)
-- [Tempo session payment method](https://mpp.dev/payment-methods/tempo/session.md)
-- [Tempo session specification](https://paymentauth.org/draft-tempo-session-00)
+- [EVM session payment method](https://github.com/tempoxyz/mpp-specs/pull/225)
+- [EVM session alignment design used by this demo](superpowers/specs/2026-06-29-evm-session-spec-alignment-design.md)
 
 ## Official Pay-As-You-Go Scheme
 
@@ -33,7 +33,7 @@ Key points:
 | Phase | Initiator | Description |
 | --- | --- | --- |
 | Challenge | Server | Protected endpoint returns `402 Payment Required` with price, currency, recipient, and session method. |
-| Open | Client | First paid request deposits into escrow, creates `channelId`, and sends an open credential. |
+| Open | Client | First paid request deposits into escrow, creates `channelId`, and sends an open credential. The client-funded route uses a `hash` credential. |
 | Voucher | Client | Each paid request signs a higher `cumulativeAmount` voucher. |
 | Verify | Server | Verifies signature, increasing amount, and deposit coverage, then returns response plus receipt. |
 | Top-up | Client | Adds deposit to the same channel when balance is low. |
@@ -44,7 +44,7 @@ Key points:
 
 | Method | Client responsibility | Server responsibility |
 | --- | --- | --- |
-| `open` | Deposit tokens, create channel, sign open credential and first voucher. | Verify channel/deposit and store the highest voucher. |
+| `open` | Deposit tokens, create channel, sign open credential and first voucher. | Verify the transaction hash, channel/deposit, and store the highest voucher. |
 | `voucher` | Sign a higher cumulative amount per paid request. | Verify signature, monotonic amount, and remaining balance. |
 | `top-up` | Add more deposit to the channel. | Verify the updated channel state. |
 | `settle` | No regular responsibility. | Withdraw consumed funds with the highest accepted voucher. |
@@ -59,7 +59,7 @@ The demo now exposes both MegaETH variants:
   to the server. The server verifies channel state, stores accepted cumulative
   vouchers, serves paid requests, and calls `close` as the payee.
 - `/api/mpp/session-gasless` is the modified relayer route. It keeps the same
-  MPP session abstraction, but uses Permit2 so the server submits and sponsors
+  EVM session abstraction, but uses Permit2 so the server submits and sponsors
   `openWithPermit2`, `topUpWithPermit2`, and `close`.
 
 Both variants reuse the same MegaETH USDm token, escrow contract, request
@@ -115,7 +115,7 @@ Relevant files:
 
 | Phase | Current implementation |
 | --- | --- |
-| Open | Client signs permit20 approval, Permit2 witness, and first voucher; server sponsors permit if needed and calls `openWithPermit2`. |
+| Open | Client signs permit20 approval, Permit2 authorization, and first voucher; server sponsors permit if needed and calls `openWithPermit2`. |
 | Voucher | Client signs voucher; server checks store and on-chain channel, then updates highest voucher. |
 | Top-up | Explicit UI action; client signs Permit2 top-up witness; server calls `topUpWithPermit2`. |
 | Settle | Supported by the contract, but not wired into the current route. |
@@ -146,8 +146,8 @@ table.
 
 | Method | Base `TempoStreamChannel` | EVM version changes | Current route usage |
 | --- | --- | --- | --- |
-| `open` | `payer = msg.sender`; pulls deposit with `transferFrom`. | Keeps legacy `open`. Adds `openWithPermit2` and `openWithReceiveAuthorization`; explicit `payer` allows relayers. | Official route uses `open`; gasless route uses `openWithPermit2`. |
-| `topUp` | Only payer can call; increases deposit and cancels pending close. | Keeps legacy `topUp`. Adds `topUpWithPermit2` and `topUpWithReceiveAuthorization`. | Official route uses `topUp`; gasless route uses `topUpWithPermit2`. |
+| `open` | `payer = msg.sender`; pulls deposit with `transferFrom`. | Keeps `open`. Adds spec-shaped `openWithPermit2` and `openWithAuthorization`; `from` identifies the payer for relayed funding. | Client-funded route uses `open`; gasless route uses `openWithPermit2`. |
+| `topUp` | Only payer can call; increases deposit and cancels pending close. | Keeps `topUp`. Adds spec-shaped `topUpWithPermit2` and `topUpWithAuthorization`. | Client-funded route uses `topUp`; gasless route uses `topUpWithPermit2`. |
 | `settle` | Payee withdraws `cumulative - settled` using an increasing voucher. | Same semantics. | Not wired yet. |
 | `close` | Payee closes with final voucher; payee gets delta, payer gets refund. | Same semantics. | Server payee signer calls it; amount must match stored highest voucher. |
 | `requestClose` / `withdraw` | Payer-side grace-period exit path. | Same semantics. | Not exposed in UI/API; contract-level fallback only. |
@@ -156,8 +156,8 @@ Key safety bindings in the EVM version:
 
 - `openWithPermit2`: Permit2 witness binds `payee/salt/authorizedSigner`; token and amount are bound by `TokenPermissions`.
 - `topUpWithPermit2`: Permit2 witness binds `channelId`, so a top-up signature cannot be reused for another channel.
-- `openWithReceiveAuthorization`: EIP-3009 nonce binds `payee/salt/authorizedSigner`.
-- `topUpWithReceiveAuthorization`: EIP-3009 nonce uses `keccak256(channelId, topUpNonceSalt)`, allowing multiple top-ups on the same channel.
+- `openWithAuthorization`: EIP-3009 nonce must equal `keccak256(abi.encode(from, payee, token, salt, authorizedSigner))`.
+- `topUpWithAuthorization`: EIP-3009 nonce must equal `keccak256(abi.encode(channelId, additionalDeposit, from, topUpSalt))`, allowing multiple top-ups on the same channel.
 
 ## Follow-Ups
 

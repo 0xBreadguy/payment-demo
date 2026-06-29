@@ -7,8 +7,8 @@ import {
   type WalletClient,
 } from "viem";
 import { Challenge, Credential } from "mppx";
-import { megaethTestnet, megaethTxUrl } from "./chain";
-import { getMppSessionCloseRefundAmount } from "./mpp-session-feed";
+import { megaethTestnet, megaethTxUrl } from "./chain.ts";
+import { getMppSessionCloseRefundAmount } from "./mpp-session-feed.ts";
 import {
   computeMegaethSessionChannelId,
   createMegaethSessionSource,
@@ -21,23 +21,23 @@ import {
   signMegaethSessionVoucher,
   signPermit2OpenWitnessTransfer,
   signPermit2TopUpWitnessTransfer,
-} from "./megaeth-session";
+} from "./megaeth-session.ts";
 import {
   buildMppSessionPermit20ApprovalPayload,
   recoverMppSessionPermit20ApprovalSigner,
   type MppSessionPermit20ApprovalPayload,
-} from "./mpp-session-permit20-approval";
+} from "./mpp-session-permit20-approval.ts";
 import {
   permit20Erc20Abi,
   selectPermit20Domain,
   signPermit20,
-} from "./mpp-permit20";
+} from "./mpp-permit20.ts";
 import {
   mergePaymentTiming,
   readServerPaymentTiming,
   type PaymentTiming,
 } from "./payment-timing.ts";
-import { USDM_DECIMALS } from "./usdm";
+import { USDM_DECIMALS } from "./usdm.ts";
 
 export type MppSessionProgressStep =
   | "requesting"
@@ -64,8 +64,12 @@ export type MppSessionLocalState = {
 
 export type MppSessionReceipt = {
   acceptedCumulative: string;
+  chainId?: number;
   channelId: string;
   challengeId: string;
+  intent?: string;
+  method?: string;
+  reference?: string;
   spent: string;
   txHash?: string;
   units?: number;
@@ -131,19 +135,31 @@ type SessionChallenge = Challenge.Challenge<
     recipient: string;
     methodDetails?: {
       chainId?: number;
+      credentialTypes?: string[];
       escrowContract?: string;
+      feePayer?: boolean;
+      permit2Contract?: string;
     };
   },
   "session",
-  "tempo"
+  "evm"
 >;
 
 function parseChallenge(response: Response): SessionChallenge {
   const challenge = Challenge.fromResponse(response);
-  if (challenge.method !== "tempo" || challenge.intent !== "session") {
+  if (challenge.method !== "evm" || challenge.intent !== "session") {
     throw new Error(
       `Unsupported challenge: ${challenge.method}.${challenge.intent}`,
     );
+  }
+  const methodDetails = challenge.request.methodDetails as
+    | { credentialTypes?: string[]; feePayer?: boolean }
+    | undefined;
+  if (methodDetails?.feePayer !== true) {
+    throw new Error("EVM session Permit2 flow requires feePayer=true");
+  }
+  if (!methodDetails.credentialTypes?.includes("permit2")) {
+    throw new Error("EVM session challenge does not allow permit2 credentials");
   }
   return challenge as SessionChallenge;
 }
@@ -155,11 +171,17 @@ function decodeRawReceiptHeader(response: Response): Record<string, unknown> {
   return JSON.parse(json) as Record<string, unknown>;
 }
 
-function buildSessionReceipt(raw: Record<string, unknown>): MppSessionReceipt {
+export function buildMppSessionReceipt(
+  raw: Record<string, unknown>,
+): MppSessionReceipt {
   return {
     acceptedCumulative: String(raw.acceptedCumulative ?? "0"),
+    chainId: typeof raw.chainId === "number" ? raw.chainId : undefined,
     channelId: String(raw.channelId ?? ""),
     challengeId: String(raw.challengeId ?? ""),
+    intent: raw.intent ? String(raw.intent) : undefined,
+    method: raw.method ? String(raw.method) : undefined,
+    reference: raw.reference ? String(raw.reference) : undefined,
     spent: String(raw.spent ?? "0"),
     txHash: raw.txHash ? String(raw.txHash) : undefined,
     units: typeof raw.units === "number" ? raw.units : undefined,
@@ -432,19 +454,28 @@ export async function payMppSessionRequest(
       challenge,
       payload: {
         action: "open",
+        authorization: {
+          from: account,
+          permitted: {
+            amount: plan.depositAmount.toString(),
+            token: currency,
+          },
+          nonce: permit2Nonce.toString(),
+          deadline: permit2Deadline.toString(),
+          witness: {
+            payee: recipient,
+            salt,
+            authorizedSigner: account,
+          },
+        },
         authorizedSigner: account,
         channelId,
         cumulativeAmount: plan.nextCumulativeAmount.toString(),
-        deposit: plan.depositAmount.toString(),
-        payer: account,
-        permit2Deadline: permit2Deadline.toString(),
-        permit2Nonce: permit2Nonce.toString(),
-        permit2Signature,
         ...(permit20Approval ? { permit20Approval } : {}),
         salt,
-        signature,
-        token: currency,
+        signature: permit2Signature,
         type: "permit2",
+        voucherSignature: signature,
       },
       source: createMegaethSessionSource(chainId, account),
     });
@@ -507,7 +538,7 @@ export async function payMppSessionRequest(
   }
   const body = bodyText ? JSON.parse(bodyText) : null;
   const rawReceipt = decodeRawReceiptHeader(finalResponse);
-  const receipt = buildSessionReceipt(rawReceipt);
+  const receipt = buildMppSessionReceipt(rawReceipt);
   const timing = mergePaymentTiming({
     client: {
       chainSide: "unknown",
@@ -637,11 +668,21 @@ export async function topUpMppSession(
     payload: {
       action: "topUp",
       additionalDeposit: additionalDeposit.toString(),
+      authorization: {
+        from: account,
+        permitted: {
+          amount: additionalDeposit.toString(),
+          token: currency,
+        },
+        nonce: permit2Nonce.toString(),
+        deadline: permit2Deadline.toString(),
+        witness: {
+          channelId: state.channelId,
+        },
+      },
       channelId: state.channelId,
-      permit2Deadline: permit2Deadline.toString(),
-      permit2Nonce: permit2Nonce.toString(),
-      permit2Signature,
       ...(permit20Approval ? { permit20Approval } : {}),
+      signature: permit2Signature,
       type: "permit2",
     },
     source: createMegaethSessionSource(chainId, account),
@@ -659,7 +700,7 @@ export async function topUpMppSession(
   }
 
   const rawReceipt = decodeRawReceiptHeader(response);
-  const receipt = buildSessionReceipt(rawReceipt);
+  const receipt = buildMppSessionReceipt(rawReceipt);
   const txHash = receipt.txHash as `0x${string}` | undefined;
   const timing = mergePaymentTiming({
     client: {
@@ -754,7 +795,7 @@ export async function closeMppSession(options: {
     throw new Error(`close rejected (${response.status}): ${bodyText}`);
   }
   const rawReceipt = decodeRawReceiptHeader(response);
-  const receipt = buildSessionReceipt(rawReceipt);
+  const receipt = buildMppSessionReceipt(rawReceipt);
   const txHash = (receipt.txHash ?? "") as `0x${string}`;
   const timing = mergePaymentTiming({
     client: {
