@@ -1,6 +1,7 @@
 import { getAddress, type Address } from "viem";
 import { megaethTestnet } from "./chain.ts";
 import { USDM_ADDRESS } from "./usdm.ts";
+export { X402_PROTECTED_PATH } from "./x402-paths.ts";
 
 export const X402_NETWORK = `eip155:${megaethTestnet.id}` as const;
 
@@ -9,7 +10,6 @@ export const X402_TOKEN_VERSION = process.env.NEXT_PUBLIC_X402_TOKEN_VERSION ?? 
 
 // 1 token, 18 decimals
 export const X402_TOKEN_PRICE = "1000000000000000000";
-export const X402_PROTECTED_PATH = "/api/protected";
 
 export function getFacilitatorUrl(req?: Request): string {
   const explicit = process.env.X402_FACILITATOR_URL;

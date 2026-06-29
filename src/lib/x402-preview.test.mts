@@ -12,7 +12,7 @@ test("reads x402 v2 payment requirements from the PAYMENT-REQUIRED header", asyn
     x402Version: 2,
     error: "Payment required",
     resource: {
-      url: "http://localhost:3000/api/protected",
+      url: "http://localhost:3000/api/x402/exact",
       description: "Pay 1 USDm to view the protected content",
       mimeType: "application/json",
     },
@@ -55,7 +55,7 @@ test("formats the x402 protocol error when a paid retry is rejected", () => {
         x402Version: 2,
         error: "permit2_allowance_required",
         resource: {
-          url: "http://localhost:3000/api/protected",
+          url: "http://localhost:3000/api/x402/exact",
           description: "Pay 1 USDm to view the protected content",
           mimeType: "application/json",
         },

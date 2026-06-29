@@ -13,8 +13,7 @@ import {
   readServerPaymentTiming,
   type PaymentTiming,
 } from "@/lib/payment-timing";
-
-const PROTECTED_PATH = "/api/protected";
+import { X402_PROTECTED_PATH } from "@/lib/x402-paths";
 
 type State =
   | { kind: "idle" }
@@ -31,9 +30,9 @@ export function X402Demo() {
 
   async function previewUnpaid() {
     setUnauthorized(null);
-    setState({ kind: "loading", step: "GET /api/protected (no payment)" });
+    setState({ kind: "loading", step: "GET /api/x402/exact (no payment)" });
     try {
-      const res = await fetch(PROTECTED_PATH, {
+      const res = await fetch(X402_PROTECTED_PATH, {
         headers: { Accept: "application/json" },
       });
       setUnauthorized(await readX402PreviewResponse(res));
@@ -64,7 +63,7 @@ export function X402Demo() {
 
       setState({ kind: "loading", step: "Submitting payment + fetching content…" });
       const fallbackStartedAt = performance.now();
-      const res = await fetchWithPayment(PROTECTED_PATH, { method: "GET" });
+      const res = await fetchWithPayment(X402_PROTECTED_PATH, { method: "GET" });
       if (!res.ok) {
         const preview = await readX402PreviewResponse(res);
         throw new Error(formatX402PaymentFailure(preview));

@@ -31,6 +31,16 @@ test("does not send Vercel bypass secrets to external facilitators", async () =>
   assert.equal(getFacilitatorAuthHeaders("https://facilitator.example.com"), undefined);
 });
 
+test("exports the x402 exact protected resource path", async () => {
+  process.env.NEXT_PUBLIC_USDM_ADDRESS =
+    "0x15e9f2B0A747aC05c7446559306687085D161e5C";
+
+  const { X402_PROTECTED_PATH } =
+    (await import(configModuleUrl)) as typeof import("./x402-config");
+
+  assert.equal(X402_PROTECTED_PATH, "/api/x402/exact");
+});
+
 test("prefers the token EIP-712 domain over x402 fallback values", async () => {
   process.env.NEXT_PUBLIC_USDM_ADDRESS =
     "0x15e9f2B0A747aC05c7446559306687085D161e5C";
