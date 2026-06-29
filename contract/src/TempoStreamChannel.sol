@@ -37,7 +37,7 @@ contract TempoStreamChannel is ITempoStreamChannel, EIP712 {
         override
         returns (string memory name, string memory version)
     {
-        name = "Tempo Stream Channel";
+        name = "EVM Payment Channel";
         version = "1";
     }
 
@@ -156,7 +156,7 @@ contract TempoStreamChannel is ITempoStreamChannel, EIP712 {
      * @param channelId The channel to top up
      * @param additionalDeposit Amount to add
      */
-    function topUp(bytes32 channelId, uint256 additionalDeposit) external override {
+    function topUp(bytes32 channelId, uint128 additionalDeposit) external override {
         Channel storage channel = channels[channelId];
 
         if (channel.finalized) {
@@ -176,7 +176,7 @@ contract TempoStreamChannel is ITempoStreamChannel, EIP712 {
         if (additionalDeposit > type(uint128).max - channel.deposit) {
             revert DepositOverflow();
         }
-        channel.deposit += uint128(additionalDeposit);
+        channel.deposit += additionalDeposit;
 
         bool success =
             ITIP20(channel.token).transferFrom(msg.sender, address(this), additionalDeposit);
@@ -278,7 +278,7 @@ contract TempoStreamChannel is ITempoStreamChannel, EIP712 {
 
         // Effects before interactions
         uint128 refund = deposit - settledAmount;
-        _clearAndFinalize(channelId);
+        _finalizeChannel(channel, settledAmount);
 
         // Interactions
         if (delta > 0) {
@@ -330,7 +330,7 @@ contract TempoStreamChannel is ITempoStreamChannel, EIP712 {
         }
 
         uint128 refund = deposit - settledAmount;
-        _clearAndFinalize(channelId);
+        _finalizeChannel(channel, settledAmount);
 
         if (refund > 0) {
             bool success = ITIP20(token).transfer(payer, refund);
@@ -421,9 +421,10 @@ contract TempoStreamChannel is ITempoStreamChannel, EIP712 {
 
     // --- Internal Functions ---
 
-    function _clearAndFinalize(bytes32 channelId) internal {
-        delete channels[channelId];
-        channels[channelId].finalized = true;
+    function _finalizeChannel(Channel storage channel, uint128 settledAmount) internal {
+        channel.settled = settledAmount;
+        channel.closeRequestedAt = 0;
+        channel.finalized = true;
     }
 
 }

@@ -61,8 +61,12 @@ export type MppOfficialSessionLocalState = {
 
 export type MppOfficialSessionReceipt = {
   acceptedCumulative: string;
+  chainId?: number;
   channelId: string;
   challengeId: string;
+  intent?: string;
+  method?: string;
+  reference?: string;
   spent: string;
   txHash?: string;
   units?: number;
@@ -118,19 +122,30 @@ type SessionChallenge = Challenge.Challenge<
     recipient: string;
     methodDetails?: {
       chainId?: number;
+      credentialTypes?: string[];
       escrowContract?: string;
+      feePayer?: boolean;
     };
   },
   "session",
-  "tempo"
+  "evm"
 >;
 
 function parseChallenge(response: Response): SessionChallenge {
   const challenge = Challenge.fromResponse(response);
-  if (challenge.method !== "tempo" || challenge.intent !== "session") {
+  if (challenge.method !== "evm" || challenge.intent !== "session") {
     throw new Error(
       `Unsupported challenge: ${challenge.method}.${challenge.intent}`,
     );
+  }
+  const methodDetails = challenge.request.methodDetails as
+    | { credentialTypes?: string[]; feePayer?: boolean }
+    | undefined;
+  if (!methodDetails?.credentialTypes?.includes("hash")) {
+    throw new Error("EVM session challenge does not allow hash credentials");
+  }
+  if (methodDetails.feePayer !== false) {
+    throw new Error("EVM session hash flow requires feePayer=false");
   }
   return challenge as SessionChallenge;
 }
@@ -243,13 +258,17 @@ function decodeRawReceiptHeader(response: Response): Record<string, unknown> {
   return JSON.parse(json) as Record<string, unknown>;
 }
 
-function buildSessionReceipt(
+export function buildMppOfficialSessionReceipt(
   raw: Record<string, unknown>,
 ): MppOfficialSessionReceipt {
   return {
     acceptedCumulative: String(raw.acceptedCumulative ?? "0"),
+    chainId: typeof raw.chainId === "number" ? raw.chainId : undefined,
     channelId: String(raw.channelId ?? ""),
     challengeId: String(raw.challengeId ?? ""),
+    intent: raw.intent ? String(raw.intent) : undefined,
+    method: raw.method ? String(raw.method) : undefined,
+    reference: raw.reference ? String(raw.reference) : undefined,
     spent: String(raw.spent ?? "0"),
     txHash: raw.txHash ? String(raw.txHash) : undefined,
     units: typeof raw.units === "number" ? raw.units : undefined,
@@ -463,13 +482,10 @@ export async function payMppOfficialSessionRequest(
         authorizedSigner: account,
         channelId,
         cumulativeAmount: plan.nextCumulativeAmount.toString(),
-        deposit: plan.depositAmount.toString(),
-        payer: account,
+        hash: openHash,
         salt,
         signature,
-        token: currency,
-        txHash: openHash,
-        type: "transaction",
+        type: "hash",
       },
       source: createMegaethSessionSource(chainId, account),
     });
@@ -530,7 +546,7 @@ export async function payMppOfficialSessionRequest(
   }
   const body = bodyText ? JSON.parse(bodyText) : null;
   const rawReceipt = decodeRawReceiptHeader(finalResponse);
-  const receipt = buildSessionReceipt(rawReceipt);
+  const receipt = buildMppOfficialSessionReceipt(rawReceipt);
   const timing = buildPaymentTiming({
     chainSegments,
     response: finalResponse,
@@ -655,8 +671,8 @@ export async function topUpMppOfficialSession(
       action: "topUp",
       additionalDeposit: additionalDeposit.toString(),
       channelId: state.channelId,
-      txHash: topUpHash,
-      type: "transaction",
+      hash: topUpHash,
+      type: "hash",
     },
     source: createMegaethSessionSource(chainId, account),
   });
@@ -672,7 +688,7 @@ export async function topUpMppOfficialSession(
   }
 
   const rawReceipt = decodeRawReceiptHeader(response);
-  const receipt = buildSessionReceipt(rawReceipt);
+  const receipt = buildMppOfficialSessionReceipt(rawReceipt);
   const timing = buildPaymentTiming({
     chainSegments,
     response,
@@ -767,7 +783,7 @@ export async function closeMppOfficialSession(options: {
     throw new Error(`close rejected (${response.status}): ${bodyText}`);
   }
   const rawReceipt = decodeRawReceiptHeader(response);
-  const receipt = buildSessionReceipt(rawReceipt);
+  const receipt = buildMppOfficialSessionReceipt(rawReceipt);
   const txHash = (receipt.txHash ?? "") as `0x${string}`;
   const timing = buildPaymentTiming({
     chainSegments: [],

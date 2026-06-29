@@ -26,7 +26,7 @@ Open http://localhost:3000.
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | client | RainbowKit / WalletConnect |
 | `NEXT_PUBLIC_MEGAETH_RPC_URL` | client | viem transport for wagmi (optional) |
 | `MEGAETH_RPC_URL` | server | viem transport for backend (optional) |
-| `SERVER_PRIVATE_KEY` | server | hex key for backend signer; required for `/api/relay`, `/api/faucet`, x402 gas sponsorship, MPP gasless charge settlement, and MPP session close |
+| `SERVER_PRIVATE_KEY` | server | hex key for backend signer; required for `/api/relay`, `/api/faucet`, x402 gas sponsorship, MPP gasless charge settlement, EVM session gasless relays, and EVM session close |
 | `NEXT_PUBLIC_USDM_ADDRESS` | client + server | USDm token address (shared by x402 / mpp / mpp-session) |
 | `PAY_TO` | server | Recipient of all USDm payments (falls back to server signer address) |
 | `MPP_SECRET_KEY` | server | HMAC secret for mppx 402 challenges (required for `/api/mpp/charge` and `/api/mpp/gasless-charge`) |
@@ -45,8 +45,8 @@ Open http://localhost:3000.
 - `POST /api/relay` — broadcast a pre-signed raw transaction (`{ rawTx: "0x..." }`)
 - `GET /api/mpp/charge` — MPP `tempo.charge` protected endpoint; plain ERC20 transfer, client pays gas
 - `GET /api/mpp/gasless-charge` — custom MPP `permit20.charge` protected endpoint; client signs EIP-2612 permit, server pays gas for `permit` + `transferFrom`
-- `POST /api/mpp/session` — official-style MPP `tempo.session` pay-as-you-go endpoint; client wallet pays gas for `open` and `topUp`, server verifies vouchers and calls `close`
-- `POST /api/mpp/session-gasless` — Permit2 relayed MPP `tempo.session` endpoint; server pays gas for `openWithPermit2`, `topUpWithPermit2`, and `close`
+- `POST /api/mpp/session` — EVM session pay-as-you-go endpoint; client wallet pays gas for `open` and `topUp`, server verifies `hash` credentials and vouchers, and calls `close`
+- `POST /api/mpp/session-gasless` — EVM session Permit2 gasless endpoint; server pays gas for `openWithPermit2`, `topUpWithPermit2`, and `close`
 
 ## Production Hardening Caveats
 

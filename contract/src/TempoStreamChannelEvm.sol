@@ -18,17 +18,20 @@ contract TempoStreamChannelEvm is TempoStreamChannel {
 
     // --- Constants ---
 
-    bytes32 public constant OPEN_CHANNEL_WITNESS_TYPEHASH =
-        keccak256("OpenChannelWitness(address payee,bytes32 salt,address authorizedSigner)");
+    bytes32 public constant CHANNEL_OPEN_WITNESS_TYPEHASH =
+        keccak256("ChannelOpenWitness(address payee,bytes32 salt,address authorizedSigner)");
 
-    string internal constant OPEN_CHANNEL_WITNESS_TYPE_STRING = "OpenChannelWitness witness)"
-        "OpenChannelWitness(address payee,bytes32 salt,address authorizedSigner)"
+    string internal constant CHANNEL_OPEN_WITNESS_TYPE_STRING = "ChannelOpenWitness witness)"
+        "ChannelOpenWitness(address payee,bytes32 salt,address authorizedSigner)"
         "TokenPermissions(address token,uint256 amount)";
 
-    bytes32 public constant TOP_UP_WITNESS_TYPEHASH = keccak256("TopUpWitness(bytes32 channelId)");
+    bytes32 public constant CHANNEL_TOP_UP_WITNESS_TYPEHASH =
+        keccak256("ChannelTopUpWitness(bytes32 channelId)");
 
-    string internal constant TOP_UP_WITNESS_TYPE_STRING = "TopUpWitness witness)"
-        "TokenPermissions(address token,uint256 amount)" "TopUpWitness(bytes32 channelId)";
+    string internal constant CHANNEL_TOP_UP_WITNESS_TYPE_STRING =
+        "ChannelTopUpWitness witness)"
+        "ChannelTopUpWitness(bytes32 channelId)"
+        "TokenPermissions(address token,uint256 amount)";
 
     // --- External Functions ---
 
@@ -38,27 +41,27 @@ contract TempoStreamChannelEvm is TempoStreamChannel {
      *      Any relayer may submit this transaction on behalf of the payer.
      *      The Permit2 signature includes a witness hash over (payee, salt, authorizedSigner)
      *      to prevent the signature from being used with different channel parameters.
-     * @param payer Address that funds the channel (signs Permit2 off-chain)
      * @param payee Address authorized to withdraw (server)
      * @param token TIP-20 token address
      * @param deposit Amount to deposit
      * @param salt Random salt for channel ID generation
      * @param authorizedSigner Address authorized to sign vouchers (0 = use payer)
+     * @param from Address that funds the channel (signs Permit2 off-chain)
      * @param nonce Permit2 nonce (must be unused for the payer)
      * @param deadline Permit2 signature deadline (block.timestamp must be <= deadline)
-     * @param permit2Signature Permit2 PermitWitnessTransferFrom EIP-712 signature from payer
+     * @param signature Permit2 PermitWitnessTransferFrom EIP-712 signature from payer
      * @return channelId The unique channel identifier
      */
     function openWithPermit2(
-        address payer,
         address payee,
         address token,
         uint128 deposit,
         bytes32 salt,
         address authorizedSigner,
+        address from,
         uint256 nonce,
         uint256 deadline,
-        bytes calldata permit2Signature
+        bytes calldata signature
     )
         external
         returns (bytes32 channelId)
@@ -70,14 +73,14 @@ contract TempoStreamChannelEvm is TempoStreamChannel {
             revert ZeroDeposit();
         }
 
-        channelId = computeChannelId(payer, payee, token, salt, authorizedSigner);
+        channelId = computeChannelId(from, payee, token, salt, authorizedSigner);
 
         if (channels[channelId].payer != address(0) || channels[channelId].finalized) {
             revert ChannelAlreadyExists();
         }
 
         channels[channelId] = Channel({
-            payer: payer,
+            payer: from,
             payee: payee,
             token: token,
             authorizedSigner: authorizedSigner,
@@ -88,7 +91,7 @@ contract TempoStreamChannelEvm is TempoStreamChannel {
         });
 
         bytes32 witness =
-            keccak256(abi.encode(OPEN_CHANNEL_WITNESS_TYPEHASH, payee, salt, authorizedSigner));
+            keccak256(abi.encode(CHANNEL_OPEN_WITNESS_TYPEHASH, payee, salt, authorizedSigner));
 
         StdContracts.PERMIT2
             .permitWitnessTransferFrom(
@@ -102,32 +105,32 @@ contract TempoStreamChannelEvm is TempoStreamChannel {
                 ISignatureTransfer.SignatureTransferDetails({
                     to: address(this), requestedAmount: deposit
                 }),
-                payer,
+                from,
                 witness,
-                OPEN_CHANNEL_WITNESS_TYPE_STRING,
-                permit2Signature
+                CHANNEL_OPEN_WITNESS_TYPE_STRING,
+                signature
             );
 
-        emit ChannelOpened(channelId, payer, payee, token, authorizedSigner, salt, deposit);
+        emit ChannelOpened(channelId, from, payee, token, authorizedSigner, salt, deposit);
     }
 
     /**
      * @notice Open a new payment channel using EIP-3009 receiveWithAuthorization.
-     * @dev `payer` signs the authorization and any relayer may submit the transaction.
-     *      The EIP-3009 nonce is derived as keccak256(payee, salt, authorizedSigner),
-     *      binding the signature to these channel parameters and preventing misuse.
-     *      The payer MUST use the same nonce derivation when signing the authorization.
+     * @dev `from` signs the authorization and any relayer may submit the transaction.
+     *      The EIP-3009 nonce must equal
+     *      keccak256(abi.encode(from, payee, token, salt, authorizedSigner)).
      */
-    function openWithReceiveAuthorization(
-        address payer,
+    function openWithAuthorization(
         address payee,
         address token,
         uint128 deposit,
         bytes32 salt,
         address authorizedSigner,
+        address from,
         uint256 validAfter,
         uint256 validBefore,
-        bytes calldata authorizationSignature
+        bytes32 nonce,
+        bytes calldata signature
     )
         external
         returns (bytes32 channelId)
@@ -139,14 +142,19 @@ contract TempoStreamChannelEvm is TempoStreamChannel {
             revert ZeroDeposit();
         }
 
-        channelId = computeChannelId(payer, payee, token, salt, authorizedSigner);
+        bytes32 expectedNonce = keccak256(abi.encode(from, payee, token, salt, authorizedSigner));
+        if (nonce != expectedNonce) {
+            revert NonceMismatch();
+        }
+
+        channelId = computeChannelId(from, payee, token, salt, authorizedSigner);
 
         if (channels[channelId].payer != address(0) || channels[channelId].finalized) {
             revert ChannelAlreadyExists();
         }
 
         channels[channelId] = Channel({
-            payer: payer,
+            payer: from,
             payee: payee,
             token: token,
             authorizedSigner: authorizedSigner,
@@ -156,20 +164,18 @@ contract TempoStreamChannelEvm is TempoStreamChannel {
             finalized: false
         });
 
-        bytes32 nonce = keccak256(abi.encode(payee, salt, authorizedSigner));
-
         IERC3009(token)
             .receiveWithAuthorization(
-                payer,
+                from,
                 address(this),
                 deposit,
                 validAfter,
                 validBefore,
                 nonce,
-                authorizationSignature
+                signature
             );
 
-        emit ChannelOpened(channelId, payer, payee, token, authorizedSigner, salt, deposit);
+        emit ChannelOpened(channelId, from, payee, token, authorizedSigner, salt, deposit);
     }
 
     /**
@@ -178,16 +184,18 @@ contract TempoStreamChannelEvm is TempoStreamChannel {
      *      The witness binds the signature to this specific channelId.
      * @param channelId The channel to top up
      * @param additionalDeposit Amount to add
+     * @param from Address that funds the top-up (signs Permit2 off-chain)
      * @param nonce Permit2 nonce (must be unused for the payer)
      * @param deadline Permit2 signature deadline
-     * @param permit2Signature Permit2 PermitWitnessTransferFrom EIP-712 signature from payer
+     * @param signature Permit2 PermitWitnessTransferFrom EIP-712 signature from payer
      */
     function topUpWithPermit2(
         bytes32 channelId,
-        uint256 additionalDeposit,
+        uint128 additionalDeposit,
+        address from,
         uint256 nonce,
         uint256 deadline,
-        bytes calldata permit2Signature
+        bytes calldata signature
     )
         external
     {
@@ -199,6 +207,9 @@ contract TempoStreamChannelEvm is TempoStreamChannel {
         if (channel.payer == address(0)) {
             revert ChannelNotFound();
         }
+        if (from != channel.payer) {
+            revert NotPayer();
+        }
 
         if (additionalDeposit == 0) {
             revert ZeroDeposit();
@@ -207,9 +218,9 @@ contract TempoStreamChannelEvm is TempoStreamChannel {
         if (additionalDeposit > type(uint128).max - channel.deposit) {
             revert DepositOverflow();
         }
-        channel.deposit += uint128(additionalDeposit);
+        channel.deposit += additionalDeposit;
 
-        bytes32 witness = keccak256(abi.encode(TOP_UP_WITNESS_TYPEHASH, channelId));
+        bytes32 witness = keccak256(abi.encode(CHANNEL_TOP_UP_WITNESS_TYPEHASH, channelId));
 
         StdContracts.PERMIT2
             .permitWitnessTransferFrom(
@@ -223,10 +234,10 @@ contract TempoStreamChannelEvm is TempoStreamChannel {
                 ISignatureTransfer.SignatureTransferDetails({
                     to: address(this), requestedAmount: additionalDeposit
                 }),
-                channel.payer,
+                from,
                 witness,
-                TOP_UP_WITNESS_TYPE_STRING,
-                permit2Signature
+                CHANNEL_TOP_UP_WITNESS_TYPE_STRING,
+                signature
             );
 
         if (channel.closeRequestedAt != 0) {
@@ -240,17 +251,18 @@ contract TempoStreamChannelEvm is TempoStreamChannel {
     /**
      * @notice Add more funds using EIP-3009 receiveWithAuthorization.
      * @dev Channel payer signs the authorization and any relayer may submit it.
-     *      The EIP-3009 nonce is derived as keccak256(channelId, topUpNonceSalt),
-     *      binding the signature to this specific channel. The topUpNonceSalt allows
-     *      multiple top-ups to the same channel (each needs a unique EIP-3009 nonce).
+     *      The EIP-3009 nonce must equal
+     *      keccak256(abi.encode(channelId, additionalDeposit, from, topUpSalt)).
      */
-    function topUpWithReceiveAuthorization(
+    function topUpWithAuthorization(
         bytes32 channelId,
-        uint256 additionalDeposit,
+        uint128 additionalDeposit,
+        address from,
+        bytes32 topUpSalt,
         uint256 validAfter,
         uint256 validBefore,
-        bytes32 topUpNonceSalt,
-        bytes calldata authorizationSignature
+        bytes32 nonce,
+        bytes calldata signature
     )
         external
     {
@@ -262,6 +274,9 @@ contract TempoStreamChannelEvm is TempoStreamChannel {
         if (channel.payer == address(0)) {
             revert ChannelNotFound();
         }
+        if (from != channel.payer) {
+            revert NotPayer();
+        }
         if (additionalDeposit == 0) {
             revert ZeroDeposit();
         }
@@ -269,19 +284,23 @@ contract TempoStreamChannelEvm is TempoStreamChannel {
         if (additionalDeposit > type(uint128).max - channel.deposit) {
             revert DepositOverflow();
         }
-        channel.deposit += uint128(additionalDeposit);
+        bytes32 expectedNonce =
+            keccak256(abi.encode(channelId, additionalDeposit, from, topUpSalt));
+        if (nonce != expectedNonce) {
+            revert NonceMismatch();
+        }
 
-        bytes32 nonce = keccak256(abi.encode(channelId, topUpNonceSalt));
+        channel.deposit += additionalDeposit;
 
         IERC3009(channel.token)
             .receiveWithAuthorization(
-                channel.payer,
+                from,
                 address(this),
                 additionalDeposit,
                 validAfter,
                 validBefore,
                 nonce,
-                authorizationSignature
+                signature
             );
 
         if (channel.closeRequestedAt != 0) {

@@ -1,4 +1,4 @@
-import { getAddress, isAddressEqual, type Address } from "viem";
+import { getAddress, isAddressEqual, parseUnits, type Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { USDM_ADDRESS, USDM_DECIMALS } from "./usdm.ts";
 import {
@@ -32,6 +32,14 @@ export const MPP_SESSION_DEPOSIT_AMOUNT_HUMAN =
 
 export const MPP_SESSION_TOKEN_ADDRESS: Address = USDM_ADDRESS;
 export const MPP_SESSION_TOKEN_DECIMALS = USDM_DECIMALS;
+export const MPP_SESSION_REQUEST_AMOUNT_BASE_UNITS = parseUnits(
+  MPP_SESSION_REQUEST_AMOUNT_HUMAN,
+  MPP_SESSION_TOKEN_DECIMALS,
+).toString();
+export const MPP_SESSION_DEPOSIT_AMOUNT_BASE_UNITS = parseUnits(
+  MPP_SESSION_DEPOSIT_AMOUNT_HUMAN,
+  MPP_SESSION_TOKEN_DECIMALS,
+).toString();
 export const MPP_SESSION_EXPLICIT_TOKEN_NAME =
   process.env.NEXT_PUBLIC_MPP_SESSION_TOKEN_NAME;
 export const MPP_SESSION_EXPLICIT_TOKEN_VERSION =

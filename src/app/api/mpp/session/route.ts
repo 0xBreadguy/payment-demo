@@ -1,10 +1,16 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { Credential, Errors, Method, z } from "mppx";
+import { Credential, Errors, Method } from "mppx";
 import { Mppx } from "mppx/server";
-import { Methods } from "mppx/tempo";
-import { type Address, type Hex, zeroAddress } from "viem";
+import {
+  decodeFunctionData,
+  getAddress,
+  type Address,
+  type Hex,
+  zeroAddress,
+} from "viem";
 
 import { megaethTestnet } from "@/lib/chain";
+import { evmSessionMethod } from "@/lib/mpp-evm-session-method";
 import { writeContractRealtime } from "@/lib/megaeth-realtime";
 import {
   getMegaethSessionAuthorizedSigner,
@@ -17,11 +23,10 @@ import {
   verifyMegaethSessionVoucher,
 } from "@/lib/megaeth-session";
 import {
-  MPP_SESSION_DEPOSIT_AMOUNT_HUMAN,
+  MPP_SESSION_DEPOSIT_AMOUNT_BASE_UNITS,
   MPP_SESSION_ESCROW_CONTRACT,
-  MPP_SESSION_REQUEST_AMOUNT_HUMAN,
+  MPP_SESSION_REQUEST_AMOUNT_BASE_UNITS,
   MPP_SESSION_TOKEN_ADDRESS,
-  MPP_SESSION_TOKEN_DECIMALS,
   getMppSecretKey,
   getMppSessionPayToAddress,
   getMppSessionReadiness,
@@ -44,15 +49,6 @@ import {
   getServerWallet,
   serverAccount,
 } from "@/lib/server-wallet";
-
-const sessionMethodWithTransactions = Method.from({
-  name: Methods.session.name,
-  intent: Methods.session.intent,
-  schema: {
-    credential: { payload: z.any() },
-    request: Methods.session.schema.request,
-  },
-});
 
 type MppxHandler = ReturnType<
   typeof Mppx.create<readonly [ReturnType<typeof Method.toServer>]>
@@ -101,6 +97,25 @@ function getPayloadHex(payload: Record<string, unknown>, key: string): Hex {
   return value as Hex;
 }
 
+function getCredentialSourceAddress(
+  credential: { source?: string },
+  expectedChainId: number,
+): Address {
+  const match = credential.source?.match(/^did:pkh:eip155:(\d+):(0x[0-9a-fA-F]{40})$/u);
+  if (!match) {
+    throw new Errors.VerificationFailedError({
+      reason: "credential source must be did:pkh:eip155:<chainId>:<payer>",
+    });
+  }
+  const [, chainId, address] = match;
+  if (Number(chainId) !== expectedChainId) {
+    throw new Errors.VerificationFailedError({
+      reason: `credential source chainId ${chainId} does not match expected ${expectedChainId}`,
+    });
+  }
+  return getAddress(address);
+}
+
 function getPayloadBigInt(payload: Record<string, unknown>, key: string) {
   const value = payload[key];
   if (typeof value !== "string" && typeof value !== "number") {
@@ -120,6 +135,49 @@ function normalizeAuthorizedSigner(parameters: {
     : parameters.authorizedSigner;
 }
 
+async function verifyDirectEscrowTransaction(parameters: {
+  escrowContract: Address;
+  expectedFrom: Address;
+  expectedFunctionName: "open" | "topUp";
+  hash: Hex;
+}) {
+  const { escrowContract, expectedFrom, expectedFunctionName, hash } =
+    parameters;
+  const [transaction, receipt] = await Promise.all([
+    publicClient.getTransaction({ hash }),
+    publicClient.getTransactionReceipt({ hash }),
+  ]);
+
+  if (receipt.status !== "success") {
+    throw new Errors.VerificationFailedError({
+      reason: `session ${expectedFunctionName} transaction ${hash} did not succeed`,
+    });
+  }
+  if (!transaction.to) {
+    throw new Errors.VerificationFailedError({
+      reason: `session ${expectedFunctionName} transaction ${hash} has no direct target`,
+    });
+  }
+  assertSameAddress(transaction.to, escrowContract, "session transaction target");
+  assertSameAddress(
+    transaction.from,
+    expectedFrom,
+    "session transaction sender",
+  );
+
+  const decoded = decodeFunctionData({
+    abi: megaethSessionEscrowAbi,
+    data: transaction.input,
+  });
+  if (decoded.functionName !== expectedFunctionName) {
+    throw new Errors.VerificationFailedError({
+      reason: `session transaction called ${decoded.functionName}, expected ${expectedFunctionName}`,
+    });
+  }
+
+  return decoded.args;
+}
+
 function getMppx(realm: string): MppxHandler {
   if (cached && cachedRealm === realm) return cached;
 
@@ -134,16 +192,19 @@ function getMppx(realm: string): MppxHandler {
 
   cached = Mppx.create({
     methods: [
-      Method.toServer(sessionMethodWithTransactions, {
+      Method.toServer(evmSessionMethod, {
         defaults: {
-          amount: MPP_SESSION_REQUEST_AMOUNT_HUMAN,
-          chainId: megaethTestnet.id,
+          amount: MPP_SESSION_REQUEST_AMOUNT_BASE_UNITS,
           currency: MPP_SESSION_TOKEN_ADDRESS,
-          decimals: MPP_SESSION_TOKEN_DECIMALS,
-          escrowContract: MPP_SESSION_ESCROW_CONTRACT,
           recipient,
-          suggestedDeposit: MPP_SESSION_DEPOSIT_AMOUNT_HUMAN,
+          suggestedDeposit: MPP_SESSION_DEPOSIT_AMOUNT_BASE_UNITS,
           unitType: "request",
+          methodDetails: {
+            chainId: megaethTestnet.id,
+            credentialTypes: ["hash"],
+            escrowContract: MPP_SESSION_ESCROW_CONTRACT,
+            feePayer: false,
+          },
         },
         async verify({ credential }) {
           const challenge = credential.challenge;
@@ -160,15 +221,13 @@ function getMppx(realm: string): MppxHandler {
 
           switch (payload.action) {
             case "open": {
-              if (payload.type !== "transaction") {
+              if (payload.type !== "hash") {
                 throw new Errors.VerificationFailedError({
-                  reason: "session open requires transaction payload",
+                  reason: "session open requires hash payload",
                 });
               }
 
-              const payer = getPayloadAddress(payload, "payer");
-              const token = getPayloadAddress(payload, "token");
-              const deposit = getPayloadBigInt(payload, "deposit");
+              const payer = getCredentialSourceAddress(credential, chainId);
               const salt = getPayloadHex(payload, "salt");
               const authorizedSigner = getPayloadAddress(
                 payload,
@@ -179,12 +238,34 @@ function getMppx(realm: string): MppxHandler {
                 "cumulativeAmount",
               );
               const channelId = getPayloadHex(payload, "channelId");
-              const txHash =
-                typeof payload.txHash === "string"
-                  ? (payload.txHash as Hex)
-                  : undefined;
+              const txHash = getPayloadHex(payload, "hash");
+
+              const openArgs = await verifyDirectEscrowTransaction({
+                escrowContract,
+                expectedFrom: payer,
+                expectedFunctionName: "open",
+                hash: txHash,
+              });
+              const [
+                txPayee,
+                token,
+                deposit,
+                txSalt,
+                txAuthorizedSigner,
+              ] = openArgs as readonly [Address, Address, bigint, Hex, Address];
 
               assertSameAddress(token, currency, "session open token");
+              assertSameAddress(txPayee, sessionRecipient, "session open payee");
+              assertSameAddress(
+                txAuthorizedSigner,
+                authorizedSigner,
+                "session open authorized signer",
+              );
+              if (txSalt.toLowerCase() !== salt.toLowerCase()) {
+                throw new Errors.VerificationFailedError({
+                  reason: "session open salt does not match transaction input",
+                });
+              }
 
               if (deposit < requestAmount) {
                 throw new Errors.VerificationFailedError({
@@ -284,12 +365,13 @@ function getMppx(realm: string): MppxHandler {
                 challengeId: challenge.id,
                 channelId,
                 intent: "session" as const,
-                method: "tempo" as const,
+                method: "evm" as const,
                 reference: channelId,
                 spent: state.spent.toString(),
                 status: "success" as const,
                 timestamp: new Date().toISOString(),
                 ...(txHash ? { txHash } : {}),
+                chainId,
                 units: state.units,
               };
             }
@@ -321,23 +403,6 @@ function getMppx(realm: string): MppxHandler {
                 recipient: sessionRecipient,
               });
 
-              if (
-                cumulativeAmount !==
-                existing.highestVoucherAmount + requestAmount
-              ) {
-                throw new Errors.VerificationFailedError({
-                  reason: `expected cumulativeAmount ${
-                    existing.highestVoucherAmount + requestAmount
-                  }, got ${cumulativeAmount}`,
-                });
-              }
-
-              if (cumulativeAmount > onChain.deposit) {
-                throw new Errors.VerificationFailedError({
-                  reason: "voucher amount exceeds on-chain deposit",
-                });
-              }
-
               const expectedSigner = getMegaethSessionAuthorizedSigner(onChain);
               const isValid = await verifyMegaethSessionVoucher({
                 chainId,
@@ -353,6 +418,40 @@ function getMppx(realm: string): MppxHandler {
               if (!isValid) {
                 throw new Errors.VerificationFailedError({
                   reason: "invalid MegaETH session voucher signature",
+                });
+              }
+
+              if (cumulativeAmount <= existing.highestVoucherAmount) {
+                return {
+                  acceptedCumulative:
+                    existing.highestVoucherAmount.toString(),
+                  challengeId: challenge.id,
+                  channelId,
+                  chainId,
+                  intent: "session" as const,
+                  method: "evm" as const,
+                  reference: channelId,
+                  spent: existing.spent.toString(),
+                  status: "success" as const,
+                  timestamp: new Date().toISOString(),
+                  units: existing.units,
+                };
+              }
+
+              if (
+                cumulativeAmount !==
+                existing.highestVoucherAmount + requestAmount
+              ) {
+                throw new Errors.VerificationFailedError({
+                  reason: `expected cumulativeAmount ${
+                    existing.highestVoucherAmount + requestAmount
+                  }, got ${cumulativeAmount}`,
+                });
+              }
+
+              if (cumulativeAmount > onChain.deposit) {
+                throw new Errors.VerificationFailedError({
+                  reason: "voucher amount exceeds on-chain deposit",
                 });
               }
 
@@ -379,8 +478,9 @@ function getMppx(realm: string): MppxHandler {
                 acceptedCumulative: nextState.highestVoucherAmount.toString(),
                 challengeId: challenge.id,
                 channelId,
+                chainId,
                 intent: "session" as const,
-                method: "tempo" as const,
+                method: "evm" as const,
                 reference: channelId,
                 spent: nextState.spent.toString(),
                 status: "success" as const,
@@ -390,9 +490,9 @@ function getMppx(realm: string): MppxHandler {
             }
 
             case "topUp": {
-              if (payload.type !== "transaction") {
+              if (payload.type !== "hash") {
                 throw new Errors.VerificationFailedError({
-                  reason: "session top-up requires transaction payload",
+                  reason: "session top-up requires hash payload",
                 });
               }
 
@@ -409,10 +509,31 @@ function getMppx(realm: string): MppxHandler {
                 payload,
                 "additionalDeposit",
               );
-              const txHash =
-                typeof payload.txHash === "string"
-                  ? (payload.txHash as Hex)
-                  : undefined;
+              const txHash = getPayloadHex(payload, "hash");
+              const payer = getCredentialSourceAddress(credential, chainId);
+              assertSameAddress(payer, existing.payer, "session top-up payer");
+
+              const topUpArgs = await verifyDirectEscrowTransaction({
+                escrowContract,
+                expectedFrom: existing.payer,
+                expectedFunctionName: "topUp",
+                hash: txHash,
+              });
+              const [txChannelId, txAdditionalDeposit] = topUpArgs as readonly [
+                Hex,
+                bigint,
+              ];
+              if (txChannelId.toLowerCase() !== channelId.toLowerCase()) {
+                throw new Errors.VerificationFailedError({
+                  reason: "session top-up channelId does not match transaction input",
+                });
+              }
+              if (txAdditionalDeposit !== additionalDeposit) {
+                throw new Errors.VerificationFailedError({
+                  reason:
+                    "session top-up amount does not match transaction input",
+                });
+              }
 
               const onChain = await getOnChainMegaethSessionChannel(
                 publicClient,
@@ -425,7 +546,7 @@ function getMppx(realm: string): MppxHandler {
                 recipient: sessionRecipient,
               });
 
-              if (onChain.deposit < existing.deposit + additionalDeposit) {
+              if (onChain.deposit !== existing.deposit + additionalDeposit) {
                 throw new Errors.VerificationFailedError({
                   reason: "session top-up did not increase the on-chain deposit",
                 });
@@ -446,8 +567,9 @@ function getMppx(realm: string): MppxHandler {
                 acceptedCumulative: nextState.highestVoucherAmount.toString(),
                 challengeId: challenge.id,
                 channelId,
+                chainId,
                 intent: "session" as const,
-                method: "tempo" as const,
+                method: "evm" as const,
                 reference: channelId,
                 spent: nextState.spent.toString(),
                 status: "success" as const,
@@ -543,8 +665,9 @@ function getMppx(realm: string): MppxHandler {
                 acceptedCumulative: cumulativeAmount.toString(),
                 challengeId: challenge.id,
                 channelId,
+                chainId,
                 intent: "session" as const,
-                method: "tempo" as const,
+                method: "evm" as const,
                 reference: channelId,
                 spent: cumulativeAmount.toString(),
                 status: "success" as const,
@@ -597,7 +720,7 @@ async function handle(request: NextRequest): Promise<Response> {
   const mppx = getMppx(realm) as any;
   const { timing, value: result } =
     await collectPaymentServerTiming<MppxPaymentResult>(() =>
-      mppx.tempo.session({})(request),
+      mppx.evm.session({})(request),
     );
 
   if (result.status === 402) {

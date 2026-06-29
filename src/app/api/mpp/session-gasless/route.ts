@@ -1,11 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { Errors, Method, z } from "mppx";
+import { Errors, Method } from "mppx";
 import { Mppx } from "mppx/server";
-import { Methods } from "mppx/tempo";
-import { parseSignature, type Address, type Hex } from "viem";
+import { getAddress, parseSignature, type Address, type Hex } from "viem";
 import { readContract } from "viem/actions";
 
 import { megaethTestnet } from "@/lib/chain";
+import { evmSessionMethod } from "@/lib/mpp-evm-session-method";
 import { writeContractRealtime } from "@/lib/megaeth-realtime";
 import { publicClient, getServerWallet, serverAccount } from "@/lib/server-wallet";
 import { getRandomProtectedImage } from "@/lib/protected-image";
@@ -23,13 +23,12 @@ import {
   verifyMegaethSessionVoucher,
 } from "@/lib/megaeth-session";
 import {
-  MPP_SESSION_DEPOSIT_AMOUNT_HUMAN,
+  MPP_SESSION_DEPOSIT_AMOUNT_BASE_UNITS,
   MPP_SESSION_ESCROW_CONTRACT,
   MPP_SESSION_EXPLICIT_TOKEN_NAME,
   MPP_SESSION_EXPLICIT_TOKEN_VERSION,
-  MPP_SESSION_REQUEST_AMOUNT_HUMAN,
+  MPP_SESSION_REQUEST_AMOUNT_BASE_UNITS,
   MPP_SESSION_TOKEN_ADDRESS,
-  MPP_SESSION_TOKEN_DECIMALS,
   MPP_SESSION_TOKEN_NAME,
   MPP_SESSION_TOKEN_VERSION,
   getMppSecretKey,
@@ -50,16 +49,6 @@ import {
   collectPaymentServerTiming,
   recordPaymentOnChainSegment,
 } from "@/lib/payment-timing-server";
-
-// Relax credential payload to accept the Permit2 variants of open/topUp.
-const sessionMethodWithPermit2 = Method.from({
-  name: Methods.session.name,
-  intent: Methods.session.intent,
-  schema: {
-    credential: { payload: z.any() },
-    request: Methods.session.schema.request,
-  },
-});
 
 type MppxHandler = ReturnType<typeof Mppx.create<readonly [ReturnType<typeof Method.toServer>]>>;
 type MppxPaymentResult = {
@@ -85,6 +74,58 @@ function assertSameAddress(actual: Address, expected: Address, label: string) {
       reason: `${label} ${actual} does not match expected ${expected}`,
     });
   }
+}
+
+function getRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Errors.VerificationFailedError({ reason: `${label} is required` });
+  }
+  return value as Record<string, unknown>;
+}
+
+function getString(value: unknown, label: string): string {
+  if (typeof value !== "string") {
+    throw new Errors.VerificationFailedError({ reason: `${label} is required` });
+  }
+  return value;
+}
+
+function getAddressField(value: unknown, label: string): Address {
+  return getAddress(getString(value, label));
+}
+
+function getHexField(value: unknown, label: string): Hex {
+  return getString(value, label) as Hex;
+}
+
+function getBigIntField(value: unknown, label: string): bigint {
+  if (typeof value !== "string" && typeof value !== "number") {
+    throw new Errors.VerificationFailedError({ reason: `${label} is required` });
+  }
+  return BigInt(value);
+}
+
+function getPermit2Authorization(payload: Record<string, unknown>) {
+  const authorization = getRecord(payload.authorization, "authorization");
+  const permitted = getRecord(
+    authorization.permitted,
+    "authorization.permitted",
+  );
+  const witness = getRecord(authorization.witness, "authorization.witness");
+
+  return {
+    deadline: getBigIntField(authorization.deadline, "authorization.deadline"),
+    from: getAddressField(authorization.from, "authorization.from"),
+    nonce: getBigIntField(authorization.nonce, "authorization.nonce"),
+    permitted: {
+      amount: getBigIntField(
+        permitted.amount,
+        "authorization.permitted.amount",
+      ),
+      token: getAddressField(permitted.token, "authorization.permitted.token"),
+    },
+    witness,
+  };
 }
 
 function getRecoveryId(signature: Hex): number {
@@ -288,16 +329,20 @@ function getMppx(realm: string): MppxHandler {
 
   cached = Mppx.create({
     methods: [
-      Method.toServer(sessionMethodWithPermit2, {
+      Method.toServer(evmSessionMethod, {
         defaults: {
-          amount: MPP_SESSION_REQUEST_AMOUNT_HUMAN,
-          chainId: megaethTestnet.id,
+          amount: MPP_SESSION_REQUEST_AMOUNT_BASE_UNITS,
           currency: MPP_SESSION_TOKEN_ADDRESS,
-          decimals: MPP_SESSION_TOKEN_DECIMALS,
-          escrowContract: MPP_SESSION_ESCROW_CONTRACT,
           recipient,
-          suggestedDeposit: MPP_SESSION_DEPOSIT_AMOUNT_HUMAN,
+          suggestedDeposit: MPP_SESSION_DEPOSIT_AMOUNT_BASE_UNITS,
           unitType: "request",
+          methodDetails: {
+            chainId: megaethTestnet.id,
+            credentialTypes: ["permit2"],
+            escrowContract: MPP_SESSION_ESCROW_CONTRACT,
+            feePayer: true,
+            permit2Contract: PERMIT2_ADDRESS,
+          },
         },
         async verify({ credential }) {
           const challenge = credential.challenge;
@@ -323,21 +368,47 @@ function getMppx(realm: string): MppxHandler {
                 });
               }
 
-              const payer = p.payer as Address;
-              const token = p.token as Address;
-              const deposit = BigInt(p.deposit);
-              const salt = p.salt as Hex;
-              const authorizedSigner = p.authorizedSigner as Address;
-              const permit2Nonce = BigInt(p.permit2Nonce);
-              const permit2Deadline = BigInt(p.permit2Deadline);
-              const permit2Signature = p.permit2Signature as Hex;
+              const authorization = getPermit2Authorization(p);
+              const payer = authorization.from;
+              const token = authorization.permitted.token;
+              const deposit = authorization.permitted.amount;
+              const witnessSalt = getHexField(
+                authorization.witness.salt,
+                "authorization.witness.salt",
+              );
+              const salt = (p.salt as Hex | undefined) ?? witnessSalt;
+              const authorizedSigner = getAddressField(
+                p.authorizedSigner,
+                "authorizedSigner",
+              );
+              const witnessAuthorizedSigner = getAddressField(
+                authorization.witness.authorizedSigner,
+                "authorization.witness.authorizedSigner",
+              );
+              const witnessPayee = getAddressField(
+                authorization.witness.payee,
+                "authorization.witness.payee",
+              );
+              const permit2Nonce = authorization.nonce;
+              const permit2Deadline = authorization.deadline;
+              const permit2Signature = getHexField(p.signature, "signature");
               const cumulativeAmount = BigInt(p.cumulativeAmount);
               const channelId = p.channelId as Hex;
 
-              if (token.toLowerCase() !== currency.toLowerCase()) {
+              assertSameAddress(token, currency, "session open token");
+              assertSameAddress(
+                witnessPayee,
+                sessionRecipient,
+                "session open witness payee",
+              );
+              assertSameAddress(
+                witnessAuthorizedSigner,
+                authorizedSigner,
+                "session open witness authorized signer",
+              );
+              if (witnessSalt.toLowerCase() !== salt.toLowerCase()) {
                 throw new Errors.VerificationFailedError({
-                  reason:
-                    "session open token does not match the route currency",
+                  reason: "session open witness salt does not match payload salt",
                 });
               }
 
@@ -380,7 +451,10 @@ function getMppx(realm: string): MppxHandler {
                 voucher: {
                   channelId,
                   cumulativeAmount,
-                  signature: p.signature as Hex,
+                  signature: getHexField(
+                    p.voucherSignature,
+                    "voucherSignature",
+                  ),
                 },
               });
 
@@ -391,12 +465,12 @@ function getMppx(realm: string): MppxHandler {
               }
 
               const openArgs = [
-                payer,
                 sessionRecipient,
                 token,
                 deposit,
                 salt,
                 authorizedSigner,
+                payer,
                 permit2Nonce,
                 permit2Deadline,
                 permit2Signature,
@@ -489,8 +563,9 @@ function getMppx(realm: string): MppxHandler {
                 acceptedCumulative: state.highestVoucherAmount.toString(),
                 challengeId: challenge.id,
                 channelId,
+                chainId,
                 intent: "session" as const,
-                method: "tempo" as const,
+                method: "evm" as const,
                 reference: channelId,
                 spent: state.spent.toString(),
                 status: "success" as const,
@@ -525,21 +600,6 @@ function getMppx(realm: string): MppxHandler {
                 recipient: sessionRecipient,
               });
 
-              if (
-                cumulativeAmount !==
-                existing.highestVoucherAmount + requestAmount
-              ) {
-                throw new Errors.VerificationFailedError({
-                  reason: `expected cumulativeAmount ${existing.highestVoucherAmount + requestAmount}, got ${cumulativeAmount}`,
-                });
-              }
-
-              if (cumulativeAmount > onChain.deposit) {
-                throw new Errors.VerificationFailedError({
-                  reason: "voucher amount exceeds on-chain deposit",
-                });
-              }
-
               const expectedSigner = getMegaethSessionAuthorizedSigner(onChain);
               const isValid = await verifyMegaethSessionVoucher({
                 chainId,
@@ -555,6 +615,38 @@ function getMppx(realm: string): MppxHandler {
               if (!isValid) {
                 throw new Errors.VerificationFailedError({
                   reason: "invalid MegaETH session voucher signature",
+                });
+              }
+
+              if (cumulativeAmount <= existing.highestVoucherAmount) {
+                return {
+                  acceptedCumulative:
+                    existing.highestVoucherAmount.toString(),
+                  challengeId: challenge.id,
+                  channelId,
+                  chainId,
+                  intent: "session" as const,
+                  method: "evm" as const,
+                  reference: channelId,
+                  spent: existing.spent.toString(),
+                  status: "success" as const,
+                  timestamp: new Date().toISOString(),
+                  units: existing.units,
+                };
+              }
+
+              if (
+                cumulativeAmount !==
+                existing.highestVoucherAmount + requestAmount
+              ) {
+                throw new Errors.VerificationFailedError({
+                  reason: `expected cumulativeAmount ${existing.highestVoucherAmount + requestAmount}, got ${cumulativeAmount}`,
+                });
+              }
+
+              if (cumulativeAmount > onChain.deposit) {
+                throw new Errors.VerificationFailedError({
+                  reason: "voucher amount exceeds on-chain deposit",
                 });
               }
 
@@ -581,8 +673,9 @@ function getMppx(realm: string): MppxHandler {
                 acceptedCumulative: nextState.highestVoucherAmount.toString(),
                 challengeId: challenge.id,
                 channelId,
+                chainId,
                 intent: "session" as const,
-                method: "tempo" as const,
+                method: "evm" as const,
                 reference: channelId,
                 spent: nextState.spent.toString(),
                 status: "success" as const,
@@ -608,9 +701,35 @@ function getMppx(realm: string): MppxHandler {
               }
 
               const additionalDeposit = BigInt(p.additionalDeposit);
-              const permit2Nonce = BigInt(p.permit2Nonce);
-              const permit2Deadline = BigInt(p.permit2Deadline);
-              const permit2Signature = p.permit2Signature as Hex;
+              const authorization = getPermit2Authorization(p);
+              const permit2Nonce = authorization.nonce;
+              const permit2Deadline = authorization.deadline;
+              const permit2Signature = getHexField(p.signature, "signature");
+              assertSameAddress(
+                authorization.from,
+                existing.payer,
+                "session top-up authorization from",
+              );
+              assertSameAddress(
+                authorization.permitted.token,
+                existing.token,
+                "session top-up token",
+              );
+              if (authorization.permitted.amount !== additionalDeposit) {
+                throw new Errors.VerificationFailedError({
+                  reason:
+                    "session top-up authorization amount does not match payload",
+                });
+              }
+              const witnessChannelId = getHexField(
+                authorization.witness.channelId,
+                "authorization.witness.channelId",
+              );
+              if (witnessChannelId.toLowerCase() !== channelId.toLowerCase()) {
+                throw new Errors.VerificationFailedError({
+                  reason: "session top-up witness channelId does not match",
+                });
+              }
 
               const recoveredTopUpSigner = await recoverPermit2TopUpSigner({
                 amount: additionalDeposit,
@@ -661,6 +780,7 @@ function getMppx(realm: string): MppxHandler {
                 args: [
                   channelId,
                   additionalDeposit,
+                  existing.payer,
                   permit2Nonce,
                   permit2Deadline,
                   permit2Signature,
@@ -685,7 +805,7 @@ function getMppx(realm: string): MppxHandler {
                 recipient: sessionRecipient,
               });
 
-              if (onChain.deposit <= existing.deposit) {
+              if (onChain.deposit !== existing.deposit + additionalDeposit) {
                 throw new Errors.VerificationFailedError({
                   reason:
                     "session top-up did not increase the on-chain deposit",
@@ -707,8 +827,9 @@ function getMppx(realm: string): MppxHandler {
                 acceptedCumulative: nextState.highestVoucherAmount.toString(),
                 challengeId: challenge.id,
                 channelId,
+                chainId,
                 intent: "session" as const,
-                method: "tempo" as const,
+                method: "evm" as const,
                 reference: channelId,
                 spent: nextState.spent.toString(),
                 status: "success" as const,
@@ -801,8 +922,9 @@ function getMppx(realm: string): MppxHandler {
                 acceptedCumulative: cumulativeAmount.toString(),
                 challengeId: challenge.id,
                 channelId,
+                chainId,
                 intent: "session" as const,
-                method: "tempo" as const,
+                method: "evm" as const,
                 reference: channelId,
                 spent: cumulativeAmount.toString(),
                 status: "success" as const,
@@ -845,7 +967,7 @@ async function handle(request: NextRequest): Promise<Response> {
   const mppx = getMppx(realm) as any;
   const { timing, value: result } =
     await collectPaymentServerTiming<MppxPaymentResult>(() =>
-      mppx.tempo.session({})(request),
+      mppx.evm.session({})(request),
     );
 
   if (result.status === 402) {
