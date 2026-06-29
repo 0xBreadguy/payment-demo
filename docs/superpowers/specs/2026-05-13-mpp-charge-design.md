@@ -34,7 +34,7 @@ package.json                          ← add `mppx` dep
 
 ## Server route — `src/app/api/mpp/charge/route.ts`
 
-Mirrors the existing `/api/protected` shape: a single `GET` handler guarded by `mppx`.
+Mirrors the existing x402 exact protected-resource shape: a single `GET` handler guarded by `mppx`.
 
 Key behavior:
 
@@ -51,7 +51,7 @@ Key behavior:
 - `secretKey`: `MPP_SECRET_KEY` env.
 - Readiness: if `MPP_SECRET_KEY` is missing, return `503` with a JSON body listing the missing env vars (mirrors mpp reference `serverLiveReady` pattern).
 - On 402: return the challenge response from `mppx` directly.
-- On success: `result.withReceipt(NextResponse.json({ secret, when, quote }))` with the same shape as `/api/protected` but distinct copy so it's clearly the MPP route.
+- On success: `result.withReceipt(NextResponse.json({ secret, when, quote }))` with the same shape as the x402 exact route but distinct copy so it's clearly the MPP route.
 
 Because `Mppx.create` reads request state through closures, the module-scope instance is created lazily on first request (or inside the handler) to ensure env is available at request time on Vercel.
 

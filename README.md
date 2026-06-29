@@ -43,6 +43,7 @@ Open http://localhost:3000.
 
 - `GET /api/health` — chain id, latest block, server signer address
 - `POST /api/relay` — broadcast a pre-signed raw transaction (`{ rawTx: "0x..." }`)
+- `GET /api/x402/exact` — x402 `exact` protected endpoint; Permit2 signature, gas sponsored by server facilitator
 - `GET /api/mpp/charge` — MPP `tempo.charge` protected endpoint; plain ERC20 transfer, client pays gas
 - `GET /api/mpp/gasless-charge` — custom MPP `permit20.charge` protected endpoint; client signs EIP-2612 permit, server pays gas for `permit` + `transferFrom`
 - `POST /api/mpp/session` — EVM session pay-as-you-go endpoint; client wallet pays gas for `open` and `topUp`, server verifies `hash` credentials and vouchers, and calls `close`

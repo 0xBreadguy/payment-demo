@@ -18,7 +18,7 @@ References:
 
 ## Demo Flow
 
-The browser card calls `GET /api/protected`. Without a valid payment, the route
+The browser card calls `GET /api/x402/exact`. Without a valid payment, the route
 returns `402 Payment Required` with x402 payment requirements. The client then
 uses `@x402/fetch` and `ExactEvmScheme` to create a signed EVM payment payload,
 retries the same request, and receives the protected JSON response plus the x402
@@ -28,7 +28,7 @@ Current values:
 
 | Item | Value |
 | --- | --- |
-| Route | `GET /api/protected` |
+| Route | `GET /api/x402/exact` |
 | Scheme | `exact` |
 | Network | `eip155:6343` MegaETH testnet |
 | Asset | USDm from `NEXT_PUBLIC_USDM_ADDRESS` |
@@ -84,7 +84,7 @@ Important boundary:
 ## Relevant Files
 
 - `src/components/X402Demo.tsx`
-- `src/app/api/protected/route.ts`
+- `src/app/api/x402/exact/route.ts`
 - `src/app/api/x402/facilitator/[action]/route.ts`
 - `src/lib/x402-config.ts`
 - `src/lib/x402-browser-signer.ts`
