@@ -96,4 +96,4 @@ fail fast when the durable store is missing.
 
 ## Chain
 
-MegaETH testnet — chain id `6343` (live RPC), RPC `https://carrot.megaeth.com/rpc`, explorer `https://www.megaexplorer.xyz`. Faucet via [testnet.megaeth.com](https://testnet.megaeth.com).
+MegaETH testnet — chain id `6343` (live RPC), RPC `https://carrot.megaeth.com/rpc`, explorer `[https://testnet-mega.etherscan.io](https://testnet-mega.etherscan.io/)`. Faucet via [testnet.megaeth.com](https://testnet.megaeth.com).
